@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useState, useCallback } from "react"
-import { createClient } from "@/lib/supabase/client"
 import { useAppStore } from "@/lib/store"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -23,24 +22,20 @@ export default function CampaignsPage() {
   const [toggling, setToggling] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    const supabase = createClient()
     setLoading(true)
 
-    let q = supabase.from("campaigns").select("*, fb_ad_account:fb_ad_accounts(name, account_id, access_token)").order("name")
-    if (selectedAccountId) q = q.eq("fb_ad_account_id", selectedAccountId)
-    const { data } = await q
-
-    const today = new Date().toISOString().split("T")[0]
-    let iq = supabase.from("campaign_insights").select("*").eq("date", today)
-    if (selectedAccountId) iq = iq.eq("fb_ad_account_id", selectedAccountId)
-    const { data: insightsData } = await iq
+    const accParam = selectedAccountId ? `&accountId=${selectedAccountId}` : ""
+    const [campRes, insightRes] = await Promise.all([
+      fetch(`/api/user/resources?type=campaigns${accParam}`).then(r => r.json()),
+      fetch(`/api/user/resources?type=insights${accParam}`).then(r => r.json()),
+    ])
 
     const insightMap: Record<string, CampaignInsight> = {}
-    insightsData?.forEach((i) => {
-      insightMap[i.campaign_id] = i as CampaignInsight
+    ;(insightRes.data || []).forEach((i: CampaignInsight) => {
+      insightMap[i.campaign_id] = i
     })
 
-    setCampaigns((data || []) as Campaign[])
+    setCampaigns((campRes.data || []) as Campaign[])
     setInsights(insightMap)
     setLoading(false)
   }, [selectedAccountId])

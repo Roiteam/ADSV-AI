@@ -81,9 +81,20 @@ export async function GET(request: NextRequest) {
     if (type === "insights") {
       const accountId = request.nextUrl.searchParams.get("accountId")
       const date = request.nextUrl.searchParams.get("date") || new Date().toISOString().split("T")[0]
-      if (isAdmin) {
-        let q = serviceClient.from("campaign_insights").select("*").eq("date", date)
+
+      const buildQuery = (q: any) => {
+        if (date.length === 10 && !request.nextUrl.searchParams.has("range")) {
+          q = q.gte("date", date).order("date", { ascending: true })
+        } else {
+          q = q.eq("date", date)
+        }
         if (accountId) q = q.eq("fb_ad_account_id", accountId)
+        return q
+      }
+
+      if (isAdmin) {
+        let q = serviceClient.from("campaign_insights").select("*")
+        q = buildQuery(q)
         const { data } = await q
         return NextResponse.json({ data: data || [] })
       }
@@ -93,8 +104,8 @@ export async function GET(request: NextRequest) {
         .eq("user_id", user.id)
       const ids = (assignments || []).map(a => a.fb_ad_account_id)
       if (ids.length === 0) return NextResponse.json({ data: [] })
-      let q = serviceClient.from("campaign_insights").select("*").eq("date", date).in("fb_ad_account_id", ids)
-      if (accountId && ids.includes(accountId)) q = q.eq("fb_ad_account_id", accountId)
+      let q = serviceClient.from("campaign_insights").select("*").in("fb_ad_account_id", ids)
+      q = buildQuery(q)
       const { data } = await q
       return NextResponse.json({ data: data || [] })
     }

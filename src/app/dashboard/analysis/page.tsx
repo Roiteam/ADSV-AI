@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { createClient } from "@/lib/supabase/client"
 import { useAppStore } from "@/lib/store"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -31,27 +30,19 @@ export default function AnalysisPage() {
   const [selectedCampaign, setSelectedCampaign] = useState<string>("all")
 
   useEffect(() => {
-    const supabase = createClient()
-
     async function load() {
       setLoading(true)
-
-      let cq = supabase.from("campaigns").select("*").order("name")
-      if (selectedAccountId) cq = cq.eq("fb_ad_account_id", selectedAccountId)
-      const { data: cData } = await cq
-
-      let iq = supabase
-        .from("campaign_insights")
-        .select("*")
-        .gte("date", dateFrom)
-        .lte("date", dateTo)
-        .order("date")
-      if (selectedAccountId) iq = iq.eq("fb_ad_account_id", selectedAccountId)
-      if (selectedCampaign !== "all") iq = iq.eq("campaign_id", selectedCampaign)
-      const { data: iData } = await iq
-
-      setCampaigns((cData || []) as Campaign[])
-      setInsights((iData || []) as CampaignInsight[])
+      const accParam = selectedAccountId ? `&accountId=${selectedAccountId}` : ""
+      const [campRes, insightRes] = await Promise.all([
+        fetch(`/api/user/resources?type=campaigns${accParam}`).then(r => r.json()),
+        fetch(`/api/user/resources?type=insights${accParam}&date=${dateFrom}`).then(r => r.json()),
+      ])
+      setCampaigns((campRes.data || []) as Campaign[])
+      let filteredInsights = (insightRes.data || []) as CampaignInsight[]
+      if (selectedCampaign !== "all") {
+        filteredInsights = filteredInsights.filter(i => i.campaign_id === selectedCampaign)
+      }
+      setInsights(filteredInsights)
       setLoading(false)
     }
 

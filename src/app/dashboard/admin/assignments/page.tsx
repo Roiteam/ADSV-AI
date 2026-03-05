@@ -1,8 +1,7 @@
 "use client"
 
 import { useEffect, useState, useCallback } from "react"
-import { createClient } from "@/lib/supabase/client"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -34,20 +33,19 @@ export default function AssignmentsPage() {
   const [selectedPage, setSelectedPage] = useState("")
 
   const load = useCallback(async () => {
-    const supabase = createClient()
     setLoading(true)
 
     const [usersRes, accountsRes, pixelsRes, pagesRes, accAssRes, pixAssRes, pageAssRes] = await Promise.all([
-      supabase.from("profiles").select("*").eq("role", "user").order("email"),
-      supabase.from("fb_ad_accounts").select("*").order("name"),
-      supabase.from("fb_pixels").select("*").order("name"),
-      supabase.from("fb_pages").select("*").order("name"),
-      supabase.from("user_account_assignments").select("*"),
-      supabase.from("user_pixel_assignments").select("*"),
-      supabase.from("user_page_assignments").select("*"),
+      fetch("/api/admin/data?table=profiles").then(r => r.json()),
+      fetch("/api/admin/data?table=fb_ad_accounts").then(r => r.json()),
+      fetch("/api/admin/data?table=fb_pixels").then(r => r.json()),
+      fetch("/api/admin/data?table=fb_pages").then(r => r.json()),
+      fetch("/api/admin/data?table=user_account_assignments").then(r => r.json()),
+      fetch("/api/admin/data?table=user_pixel_assignments").then(r => r.json()),
+      fetch("/api/admin/data?table=user_page_assignments").then(r => r.json()),
     ])
 
-    setUsers((usersRes.data || []) as Profile[])
+    setUsers(((usersRes.data || []) as Profile[]).filter(u => u.role === "user"))
     setAccounts((accountsRes.data || []) as FbAdAccount[])
     setPixels((pixelsRes.data || []) as FbPixel[])
     setPages((pagesRes.data || []) as FbPage[])
@@ -61,37 +59,40 @@ export default function AssignmentsPage() {
 
   const assignAccount = async () => {
     if (!selectedUser || !selectedAccount) return
-    const supabase = createClient()
-    await supabase.from("user_account_assignments").insert({
-      user_id: selectedUser,
-      fb_ad_account_id: selectedAccount,
+    await fetch("/api/admin/data", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "insert", table: "user_account_assignments", record: { user_id: selectedUser, fb_ad_account_id: selectedAccount } }),
     })
     load()
   }
 
   const assignPixel = async () => {
     if (!selectedUser || !selectedPixel) return
-    const supabase = createClient()
-    await supabase.from("user_pixel_assignments").insert({
-      user_id: selectedUser,
-      fb_pixel_id: selectedPixel,
+    await fetch("/api/admin/data", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "insert", table: "user_pixel_assignments", record: { user_id: selectedUser, fb_pixel_id: selectedPixel } }),
     })
     load()
   }
 
   const assignPage = async () => {
     if (!selectedUser || !selectedPage) return
-    const supabase = createClient()
-    await supabase.from("user_page_assignments").insert({
-      user_id: selectedUser,
-      fb_page_id: selectedPage,
+    await fetch("/api/admin/data", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "insert", table: "user_page_assignments", record: { user_id: selectedUser, fb_page_id: selectedPage } }),
     })
     load()
   }
 
   const removeAssignment = async (table: string, id: string) => {
-    const supabase = createClient()
-    await supabase.from(table).delete().eq("id", id)
+    await fetch("/api/admin/data", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "delete", table, id }),
+    })
     load()
   }
 

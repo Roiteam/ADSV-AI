@@ -1,14 +1,13 @@
 "use client"
 
 import { useEffect, useState, useCallback } from "react"
-import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog"
-import { Users, UserPlus, Shield, Trash2 } from "lucide-react"
+import { Users, UserPlus, Trash2 } from "lucide-react"
 import type { Profile } from "@/types/database"
 
 export default function UsersPage() {
@@ -17,11 +16,12 @@ export default function UsersPage() {
   const [showInvite, setShowInvite] = useState(false)
   const [inviteEmail, setInviteEmail] = useState("")
   const [inviteRole, setInviteRole] = useState<"user" | "admin">("user")
+  const [inviteStatus, setInviteStatus] = useState("")
 
   const load = useCallback(async () => {
-    const supabase = createClient()
     setLoading(true)
-    const { data } = await supabase.from("profiles").select("*").order("created_at")
+    const res = await fetch("/api/admin/data?table=profiles")
+    const { data } = await res.json()
     setUsers((data || []) as Profile[])
     setLoading(false)
   }, [])
@@ -29,20 +29,34 @@ export default function UsersPage() {
   useEffect(() => { load() }, [load])
 
   const handleInvite = async () => {
+    setInviteStatus("Invio in corso...")
     try {
-      await fetch("/api/auth/invite", {
+      const res = await fetch("/api/auth/invite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: inviteEmail, role: inviteRole }),
       })
+      const result = await res.json()
+      if (result.error) {
+        setInviteStatus(`Errore: ${result.error}`)
+        return
+      }
+      setInviteStatus("Invito inviato!")
       setShowInvite(false)
       setInviteEmail("")
-    } catch { /* ignore */ }
+      setInviteStatus("")
+      load()
+    } catch {
+      setInviteStatus("Errore di rete")
+    }
   }
 
   const handleRoleChange = async (userId: string, role: string) => {
-    const supabase = createClient()
-    await supabase.from("profiles").update({ role }).eq("id", userId)
+    await fetch("/api/admin/data", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "update", table: "profiles", id: userId, record: { role } }),
+    })
     setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, role: role as "admin" | "user" } : u)))
   }
 
@@ -96,6 +110,11 @@ export default function UsersPage() {
                   </SelectContent>
                 </Select>
               </div>
+              {inviteStatus && (
+                <p className={`text-sm ${inviteStatus.includes("Errore") ? "text-red-500" : "text-blue-500"}`}>
+                  {inviteStatus}
+                </p>
+              )}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setShowInvite(false)}>Annulla</Button>

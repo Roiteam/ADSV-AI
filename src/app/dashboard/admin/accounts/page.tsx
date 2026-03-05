@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useState, useCallback } from "react"
-import { createClient } from "@/lib/supabase/client"
 import { useAppStore } from "@/lib/store"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -27,33 +26,40 @@ export default function AccountsPage() {
   const [timezone, setTimezone] = useState("Europe/Rome")
 
   const load = useCallback(async () => {
-    const supabase = createClient()
     setLoading(true)
-
-    const { data: accData } = await supabase.from("fb_ad_accounts").select("*").order("name")
-    const { data: pixelData } = await supabase.from("fb_pixels").select("*")
-    const { data: pageData } = await supabase.from("fb_pages").select("*")
-
-    const accounts = (accData || []) as FbAdAccount[]
+    const [accRes, pixRes, pageRes] = await Promise.all([
+      fetch("/api/admin/data?table=fb_ad_accounts").then(r => r.json()),
+      fetch("/api/admin/data?table=fb_pixels").then(r => r.json()),
+      fetch("/api/admin/data?table=fb_pages").then(r => r.json()),
+    ])
+    const accounts = (accRes.data || []) as FbAdAccount[]
     setFbAccounts(accounts)
     setAccounts(accounts)
-    setPixels((pixelData || []) as FbPixel[])
-    setPages((pageData || []) as FbPage[])
+    setPixels((pixRes.data || []) as FbPixel[])
+    setPages((pageRes.data || []) as FbPage[])
     setLoading(false)
   }, [setAccounts])
 
   useEffect(() => { load() }, [load])
 
   const handleAdd = async () => {
-    const supabase = createClient()
-    const { error } = await supabase.from("fb_ad_accounts").insert({
-      account_id: accountId.startsWith("act_") ? accountId : `act_${accountId}`,
-      name: accountName,
-      access_token: accessToken,
-      currency,
-      timezone,
+    const res = await fetch("/api/admin/data", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "insert",
+        table: "fb_ad_accounts",
+        record: {
+          account_id: accountId.startsWith("act_") ? accountId : `act_${accountId}`,
+          name: accountName,
+          access_token: accessToken,
+          currency,
+          timezone,
+        },
+      }),
     })
-    if (!error) {
+    const result = await res.json()
+    if (!result.error) {
       setShowAdd(false)
       setAccountId("")
       setAccountName("")
@@ -64,8 +70,11 @@ export default function AccountsPage() {
 
   const handleDelete = async (id: string) => {
     if (!confirm("Sei sicuro di voler eliminare questo account?")) return
-    const supabase = createClient()
-    await supabase.from("fb_ad_accounts").delete().eq("id", id)
+    await fetch("/api/admin/data", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "delete", table: "fb_ad_accounts", id }),
+    })
     load()
   }
 
@@ -171,10 +180,9 @@ export default function AccountsPage() {
                 <CardContent className="space-y-3">
                   <div className="flex gap-2 text-xs text-gray-500">
                     <span>{acc.currency}</span>
-                    <span>•</span>
+                    <span>-</span>
                     <span>{acc.timezone}</span>
                   </div>
-
                   {accPixels.length > 0 && (
                     <div>
                       <p className="text-xs font-medium text-gray-500 mb-1">Pixel ({accPixels.length})</p>
@@ -185,7 +193,6 @@ export default function AccountsPage() {
                       </div>
                     </div>
                   )}
-
                   {accPages.length > 0 && (
                     <div>
                       <p className="text-xs font-medium text-gray-500 mb-1">Pagine ({accPages.length})</p>
@@ -196,7 +203,6 @@ export default function AccountsPage() {
                       </div>
                     </div>
                   )}
-
                   <div className="flex gap-2 pt-2">
                     <Button variant="outline" size="sm" onClick={() => handleSyncPixelsPages(acc)}>
                       <RefreshCw size={14} /> Sync Pixel/Pagine

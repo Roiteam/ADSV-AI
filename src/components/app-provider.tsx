@@ -10,36 +10,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
-    const supabase = createClient()
-
     async function loadData() {
-      const { data: { user }, error: userError } = await supabase.auth.getUser()
-      if (userError) console.error("Auth error:", userError)
-      if (!user) {
-        setLoaded(true)
-        return
-      }
+      try {
+        const res = await fetch("/api/me")
+        const { profile } = await res.json()
 
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", user.id)
-        .single()
+        if (profile) {
+          setProfile(profile as Profile)
+        }
 
-      if (profileError) console.error("Profile error:", profileError)
-      console.log("Profile loaded:", profile)
+        const supabase = createClient()
+        const { data: accounts } = await supabase
+          .from("fb_ad_accounts")
+          .select("*")
+          .order("name")
 
-      if (profile) {
-        setProfile(profile as Profile)
-      }
-
-      const { data: accounts } = await supabase
-        .from("fb_ad_accounts")
-        .select("*")
-        .order("name")
-
-      if (accounts) {
-        setAccounts(accounts as FbAdAccount[])
+        if (accounts) {
+          setAccounts(accounts as FbAdAccount[])
+        }
+      } catch (e) {
+        console.error("AppProvider error:", e)
       }
 
       setLoaded(true)

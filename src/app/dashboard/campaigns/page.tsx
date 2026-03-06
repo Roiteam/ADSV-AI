@@ -45,23 +45,62 @@ export default function CampaignsPage() {
 
   const handleSync = async () => {
     setSyncing(true)
-    setSyncResult("Sincronizzazione in corso...")
+    setSyncResult("Recupero lista account...")
+    let totalCampaigns = 0
+    let totalInsights = 0
+    const errors: string[] = []
+
     try {
-      const res = await fetch("/api/facebook/sync", { method: "POST" })
-      const data = await res.json()
-      if (data.error) {
-        setSyncResult(`Errore: ${data.error}`)
-      } else if (data.results) {
-        setSyncResult(`Sincronizzati: ${data.results.campaigns} campagne, ${data.results.insights} insights${data.results.errors?.length ? ` (${data.results.errors.length} errori)` : ""}`)
-      } else {
-        setSyncResult("Sync completata")
+      const firstRes = await fetch("/api/facebook/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      })
+      const firstData = await firstRes.json()
+
+      if (firstData.error) {
+        setSyncResult(`Errore: ${firstData.error}`)
+        setSyncing(false)
+        return
       }
+
+      if (firstData.results) {
+        totalCampaigns += firstData.results.campaigns
+        totalInsights += firstData.results.insights
+        if (firstData.results.errors) errors.push(...firstData.results.errors)
+        setSyncResult(`${firstData.results.account}: ${firstData.results.campaigns} campagne...`)
+      }
+
+      const allIds: string[] = firstData.allAccountIds || []
+      const syncedFirst = firstData.results?.account
+
+      for (let i = 0; i < allIds.length; i++) {
+        try {
+          const res = await fetch("/api/facebook/sync", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ accountId: allIds[i] }),
+          })
+          const data = await res.json()
+          if (data.results) {
+            if (data.results.account === syncedFirst && i === 0) continue
+            totalCampaigns += data.results.campaigns
+            totalInsights += data.results.insights
+            if (data.results.errors) errors.push(...data.results.errors)
+            setSyncResult(`Sync ${i + 1}/${allIds.length}: ${data.results.account} (${data.results.campaigns} campagne)`)
+          }
+        } catch {
+          errors.push(`Account ${i + 1}: timeout`)
+        }
+      }
+
+      setSyncResult(`Completato: ${totalCampaigns} campagne, ${totalInsights} insights${errors.length ? ` - ${errors.length} errori` : ""}`)
       await load()
     } catch {
       setSyncResult("Errore di connessione")
     } finally {
       setSyncing(false)
-      setTimeout(() => setSyncResult(""), 8000)
+      setTimeout(() => setSyncResult(""), 10000)
     }
   }
 

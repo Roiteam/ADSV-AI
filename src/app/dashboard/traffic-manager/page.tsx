@@ -562,7 +562,7 @@ export default function TrafficManagerPage() {
                             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                             <XAxis dataKey="date" tick={{ fontSize: 11 }} />
                             <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} />
-                            <Tooltip formatter={(v: number) => `${v.toFixed(1)}%`} />
+                            <Tooltip formatter={(v) => `${Number(v).toFixed(1)}%`} />
                             <Line type="monotone" dataKey="rate" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} name="Approval %" />
                           </LineChart>
                         </ResponsiveContainer>
@@ -600,7 +600,7 @@ export default function TrafficManagerPage() {
                               <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
                             ))}
                           </Pie>
-                          <Tooltip formatter={(v: number) => formatNumber(v)} />
+                          <Tooltip formatter={(v) => formatNumber(Number(v))} />
                         </PieChart>
                       </ResponsiveContainer>
                     </CardContent>

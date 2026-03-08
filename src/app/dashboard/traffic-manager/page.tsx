@@ -47,6 +47,7 @@ export default function TrafficManagerPage() {
   const [dateTo, setDateTo] = useState(() => new Date().toISOString().split("T")[0])
   const [dateLabel, setDateLabel] = useState("30g")
   const [selectedManager, setSelectedManager] = useState<string>("all")
+  const [syncResult, setSyncResult] = useState<any>(null)
 
   const [form, setForm] = useState({
     id: "",
@@ -182,8 +183,6 @@ export default function TrafficManagerPage() {
     })
     await load()
   }
-
-  const [syncResult, setSyncResult] = useState<any>(null)
 
   const handleFetch = async (id: string) => {
     setSyncing(id)

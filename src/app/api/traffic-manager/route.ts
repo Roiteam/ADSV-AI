@@ -106,6 +106,9 @@ export async function POST(request: NextRequest) {
       if (manager.api_secret) {
         fetchUrl.searchParams.set("user_id", manager.api_secret)
       }
+      if (manager.api_key) {
+        fetchUrl.searchParams.set("api_key", manager.api_key)
+      }
 
       const extraParams = manager.extra_params || {}
       for (const [k, v] of Object.entries(extraParams)) {
@@ -113,18 +116,7 @@ export async function POST(request: NextRequest) {
         fetchUrl.searchParams.set(k, val)
       }
 
-      if (manager.auth_type === "query_param") {
-        fetchUrl.searchParams.set(manager.auth_param_name, manager.api_key || "")
-      }
-
       const headers: Record<string, string> = { "Accept": "application/json" }
-      if (manager.auth_type === "bearer") {
-        if (manager.api_key) headers["Authorization"] = `Bearer ${manager.api_key}`
-      } else if (manager.auth_type === "api_key") {
-        headers[manager.auth_param_name] = manager.api_key || ""
-      } else if (manager.auth_type === "basic") {
-        headers["Authorization"] = `Basic ${Buffer.from(`${manager.api_key}:${manager.api_secret || ""}`).toString("base64")}`
-      }
 
       try {
         const res = await fetch(fetchUrl.toString(), { headers })
@@ -197,8 +189,8 @@ export async function POST(request: NextRequest) {
       if (body.api_secret) {
         testUrl.searchParams.set("user_id", body.api_secret)
       }
-      if (body.api_key && body.auth_type === "query_param") {
-        testUrl.searchParams.set(body.auth_param_name || "api_key", body.api_key)
+      if (body.api_key) {
+        testUrl.searchParams.set("api_key", body.api_key)
       }
 
       const extraParams = body.extra_params || {}
@@ -207,13 +199,6 @@ export async function POST(request: NextRequest) {
       }
 
       const headers: Record<string, string> = { "Accept": "application/json" }
-      if (!body.auth_type || body.auth_type === "bearer") {
-        if (body.api_key) headers["Authorization"] = `Bearer ${body.api_key}`
-      } else if (body.auth_type === "api_key") {
-        headers[body.auth_param_name || "X-Api-Key"] = body.api_key || ""
-      } else if (body.auth_type === "basic") {
-        headers["Authorization"] = `Basic ${Buffer.from(`${body.api_key}:${body.api_secret || ""}`).toString("base64")}`
-      }
 
       try {
         const res = await fetch(testUrl.toString(), { headers })

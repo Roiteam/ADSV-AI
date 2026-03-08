@@ -404,9 +404,12 @@ export default function TrafficManagerPage() {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
                   <div><span className="text-gray-500">Offerte:</span> <strong>{syncResult.records}</strong></div>
                   <div><span className="text-gray-500">Totale Leads:</span> <strong>{syncResult.parsed?.totalLeads}</strong></div>
-                  <div><span className="text-gray-500">Approvate:</span> <strong>{syncResult.parsed?.approved}</strong></div>
+                  <div><span className="text-gray-500">Confermate:</span> <strong>{syncResult.parsed?.totalConfirmed}</strong></div>
                   <div><span className="text-gray-500">Cancellate:</span> <strong>{syncResult.parsed?.totalCanceled}</strong></div>
                   <div><span className="text-gray-500">In Attesa:</span> <strong>{syncResult.parsed?.totalPending}</strong></div>
+                  <div><span className="text-gray-500">Approvate Conv:</span> <strong>{syncResult.parsed?.approved}</strong></div>
+                  <div><span className="text-gray-500">Doppie:</span> <strong>{syncResult.parsed?.totalDouble}</strong></div>
+                  <div><span className="text-gray-500">Cestino:</span> <strong>{syncResult.parsed?.totalTrash}</strong></div>
                   <div><span className="text-gray-500">Revenue:</span> <strong>{syncResult.parsed?.totalRevenue}</strong></div>
                   <div><span className="text-gray-500">Approval Rate:</span> <strong>{syncResult.parsed?.approvalRate}%</strong></div>
                   {syncResult.upsertError && <div className="col-span-4 text-red-600">DB Error: {syncResult.upsertError}</div>}

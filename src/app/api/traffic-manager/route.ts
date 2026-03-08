@@ -127,26 +127,44 @@ export async function POST(request: NextRequest) {
         let totalPending = 0
         let totalRevenue = 0
         let totalApprovedConv = 0
+        let totalDouble = 0
+        let totalTrash = 0
 
-        const num = (v: any) => Number(v) || 0
+        const safeNum = (v: any): number => {
+          const n = Number(v)
+          return isNaN(n) ? 0 : n
+        }
 
         for (const r of records) {
-          totalLeads += num(r.total_leads) || num(r.total_with_trash) || num(r.total) || 0
-          totalConfirmed += num(r.confirmed?.total)
-          totalCanceled += num(r.canceled?.total)
-          totalPending += num(r.to_call_back?.total) + num(r.conversions?.pending?.total)
-          totalApprovedConv += num(r.conversions?.approved?.total)
-          totalRevenue += num(r.confirmed?.payout) + num(r.conversions?.approved?.payout)
+          const leads = safeNum(r.total_leads ?? r.total_with_trash ?? r.total)
+          const confirmed = safeNum(r.confirmed?.total)
+          const canceled = safeNum(r.canceled?.total)
+          const toCallback = safeNum(r.to_call_back?.total)
+          const pendingConv = safeNum(r.conversions?.pending?.total)
+          const approvedConv = safeNum(r.conversions?.approved?.total)
+          const confirmedPayout = safeNum(r.confirmed?.payout)
+          const approvedPayout = safeNum(r.conversions?.approved?.payout)
+
+          const effectiveLeads = leads > 0 ? leads : (confirmed + canceled + toCallback + safeNum(r.double) + safeNum(r.trash))
+
+          totalLeads += effectiveLeads
+          totalConfirmed += confirmed
+          totalCanceled += canceled
+          totalPending += toCallback + pendingConv
+          totalApprovedConv += approvedConv
+          totalRevenue += confirmedPayout + approvedPayout
+          totalDouble += safeNum(r.double)
+          totalTrash += safeNum(r.trash)
         }
 
         const approved = totalApprovedConv > 0 ? totalApprovedConv : totalConfirmed
         const approvalRate = totalLeads > 0
           ? (approved / totalLeads) * 100
-          : (records[0]?.confirmed?.percent || records[0]?.conversions?.approved?.percent || 0)
+          : safeNum(records[0]?.confirmed?.percent ?? records[0]?.conversions?.approved?.percent)
 
         const upsertData = {
           traffic_manager_id: manager.id,
-          date: dateTo,
+          date: dateFrom,
           total_conversions: totalLeads,
           approved_conversions: approved,
           rejected_conversions: totalCanceled,
@@ -160,12 +178,19 @@ export async function POST(request: NextRequest) {
           upsertData, { onConflict: "traffic_manager_id,date" }
         )
 
+        if (!upsertError && dateFrom !== dateTo) {
+          await serviceClient.from("traffic_manager_data").upsert({
+            ...upsertData,
+            date: dateTo,
+          }, { onConflict: "traffic_manager_id,date" })
+        }
+
         await serviceClient.from("traffic_managers").update({ last_synced_at: new Date().toISOString() }).eq("id", manager.id)
 
         return NextResponse.json({
           success: true,
           records: records.length,
-          parsed: { totalLeads, approved, totalCanceled, totalPending, totalRevenue, approvalRate: Math.round(approvalRate * 100) / 100 },
+          parsed: { totalLeads, approved, totalConfirmed, totalCanceled, totalPending, totalRevenue, totalDouble, totalTrash, approvalRate: Math.round(approvalRate * 100) / 100 },
           upsertError: upsertError?.message || null,
           raw_sample: records.length > 0 ? Object.keys(records[0]) : [],
           raw_first: records.length > 0 ? records[0] : null,

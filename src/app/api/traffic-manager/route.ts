@@ -93,76 +93,65 @@ export async function POST(request: NextRequest) {
       const dateFrom = body.dateFrom || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
       const dateTo = body.dateTo || new Date().toISOString().split("T")[0]
 
-      let fetchUrl: URL
-      try {
-        const fullUrl = manager.endpoint_path && manager.endpoint_path !== "/"
-          ? new URL(manager.endpoint_path, manager.api_base_url)
-          : new URL(manager.api_base_url)
-        fetchUrl = fullUrl
-      } catch {
-        return NextResponse.json({ error: "URL non valido nel manager" }, { status: 400 })
+      let apiUrl = manager.api_base_url || ""
+      if (manager.endpoint_path && manager.endpoint_path !== "/") {
+        apiUrl = apiUrl.replace(/\/$/, "") + manager.endpoint_path
       }
-
-      if (manager.api_secret) {
-        fetchUrl.searchParams.set("user_id", manager.api_secret)
-      }
-      if (manager.api_key) {
-        fetchUrl.searchParams.set("api_key", manager.api_key)
-      }
-
-      const extraParams = manager.extra_params || {}
-      for (const [k, v] of Object.entries(extraParams)) {
-        const val = String(v).replace("{dateFrom}", dateFrom).replace("{dateTo}", dateTo)
-        fetchUrl.searchParams.set(k, val)
-      }
+      apiUrl = apiUrl.replace(/\/$/, "") + `/${dateFrom}/${dateTo}`
 
       const headers: Record<string, string> = { "Accept": "application/json" }
+      if (manager.api_key) headers["x-api-key"] = manager.api_key
+      if (manager.api_secret) headers["x-user-id"] = manager.api_secret
 
       try {
-        const res = await fetch(fetchUrl.toString(), { headers })
+        const res = await fetch(apiUrl, { headers })
         if (!res.ok) {
           const errText = await res.text()
           return NextResponse.json({ error: `API Error ${res.status}: ${errText.slice(0, 200)}` }, { status: 400 })
         }
 
         const apiData = await res.json()
-        const mapping = manager.response_mapping || {}
-
-        const getNestedValue = (obj: any, path: string) => {
-          return path.split(".").reduce((o, k) => o?.[k], obj)
-        }
-
-        let records = apiData
-        if (mapping.data_root) {
-          records = getNestedValue(apiData, mapping.data_root)
-        }
-
-        if (!Array.isArray(records)) records = [records]
+        const records = Array.isArray(apiData) ? apiData : [apiData]
 
         let savedCount = 0
+        let totalLeads = 0
+        let totalApproved = 0
+        let totalRejected = 0
+        let totalPending = 0
+        let totalRevenue = 0
+
         for (const record of records) {
-          const total = Number(getNestedValue(record, mapping.total_field || "total") || 0)
-          const approved = Number(getNestedValue(record, mapping.approved_field || "approved") || 0)
-          const rejected = Number(getNestedValue(record, mapping.rejected_field || "rejected") || 0)
-          const pending = Number(getNestedValue(record, mapping.pending_field || "pending") || 0)
-          const revenue = Number(getNestedValue(record, mapping.revenue_field || "revenue") || 0)
-          const date = String(getNestedValue(record, mapping.date_field || "date") || dateTo)
+          const leads = record.total_leads || record.leads?.length || 0
+          const confirmed = record.confirmed?.total || 0
+          const canceled = record.canceled?.total || 0
+          const pendingConv = record.conversions?.pending?.total || record.to_call_back?.total || 0
+          const approvedConv = record.conversions?.approved?.total || confirmed
+          const confirmPct = record.confirmed?.percent || (record.conversions?.approved?.percent) || 0
+          const rev = record.confirmed?.payout || record.conversions?.approved?.payout || 0
 
-          const approvalRate = total > 0 ? (approved / total) * 100 : 0
-
-          await serviceClient.from("traffic_manager_data").upsert({
-            traffic_manager_id: manager.id,
-            date: date.split("T")[0],
-            total_conversions: total,
-            approved_conversions: approved,
-            rejected_conversions: rejected,
-            pending_conversions: pending,
-            approval_rate: Math.round(approvalRate * 100) / 100,
-            revenue,
-            raw_data: record,
-          }, { onConflict: "traffic_manager_id,date" })
-          savedCount++
+          totalLeads += leads
+          totalApproved += approvedConv || confirmed
+          totalRejected += canceled
+          totalPending += pendingConv
+          totalRevenue += rev
         }
+
+        const approvalRate = totalLeads > 0
+          ? (totalApproved / totalLeads) * 100
+          : records[0]?.confirmed?.percent || 0
+
+        await serviceClient.from("traffic_manager_data").upsert({
+          traffic_manager_id: manager.id,
+          date: dateTo,
+          total_conversions: totalLeads,
+          approved_conversions: totalApproved,
+          rejected_conversions: totalRejected,
+          pending_conversions: totalPending,
+          approval_rate: Math.round(approvalRate * 100) / 100,
+          revenue: totalRevenue,
+          raw_data: apiData,
+        }, { onConflict: "traffic_manager_id,date" })
+        savedCount = 1
 
         await serviceClient.from("traffic_managers").update({ last_synced_at: new Date().toISOString() }).eq("id", manager.id)
 
@@ -175,33 +164,26 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "test") {
-      let testUrl: URL
+      const today = new Date().toISOString().split("T")[0]
+      const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
+
+      let testUrl = (body.api_base_url || "").replace(/\/$/, "")
       try {
-        testUrl = new URL(body.api_base_url)
-      } catch {
-        try {
-          testUrl = new URL(body.endpoint_path || "/", body.api_base_url)
-        } catch {
-          return NextResponse.json({ error: "URL non valido" }, { status: 400 })
+        const parsed = new URL(testUrl)
+        if (parsed.pathname === "/" || parsed.pathname === "") {
+          if (body.endpoint_path && body.endpoint_path !== "/") {
+            testUrl = testUrl + body.endpoint_path
+          }
         }
-      }
-
-      if (body.api_secret) {
-        testUrl.searchParams.set("user_id", body.api_secret)
-      }
-      if (body.api_key) {
-        testUrl.searchParams.set("api_key", body.api_key)
-      }
-
-      const extraParams = body.extra_params || {}
-      for (const [k, v] of Object.entries(extraParams)) {
-        testUrl.searchParams.set(k, String(v))
-      }
+      } catch { /* not valid URL */ }
+      testUrl = testUrl + `/${weekAgo}/${today}`
 
       const headers: Record<string, string> = { "Accept": "application/json" }
+      if (body.api_key) headers["x-api-key"] = body.api_key
+      if (body.api_secret) headers["x-user-id"] = body.api_secret
 
       try {
-        const res = await fetch(testUrl.toString(), { headers })
+        const res = await fetch(testUrl, { headers })
         const text = await res.text()
         let json = null
         try { json = JSON.parse(text) } catch { /* not json */ }

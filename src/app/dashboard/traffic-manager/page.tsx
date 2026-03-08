@@ -334,6 +334,16 @@ export default function TrafficManagerPage() {
                 <p className={`font-medium flex items-center gap-2 ${testResult.ok ? "text-green-700 dark:text-green-300" : "text-red-700 dark:text-red-300"}`}>
                   {testResult.ok ? <><CheckCircle2 size={16} /> Connessione riuscita!</> : <><XCircle size={16} /> {testResult.error || `Errore ${testResult.status}`}</>}
                 </p>
+                {testResult.ok && testResult.data && (
+                  <div className="mt-2 text-xs text-green-600 dark:text-green-400">
+                    {Array.isArray(testResult.data) && testResult.data.length > 0 && (
+                      <p>{testResult.data.length} offerte trovate - Approval rate primo risultato: {testResult.data[0]?.confirmed?.percent || "N/A"}%</p>
+                    )}
+                  </div>
+                )}
+                {!testResult.ok && testResult.raw && (
+                  <p className="mt-1 text-xs text-red-500 dark:text-red-400 break-all">{testResult.raw}</p>
+                )}
               </div>
             )}
           </CardContent>

@@ -40,6 +40,9 @@ const ACTION_PROMPTS: Record<string, string> = {
   prompt_landing: "Voglio creare una landing page per un prodotto. Guidami nel processo.",
   prompt_video: "Voglio creare degli script per video ads. Guidami nel processo.",
   prompt_funnel: "Voglio creare un funnel completo (landing + video ads + retargeting). Guidami nel processo.",
+  prompt_ad_copy: "Genera 5 varianti complete di copy ads per Facebook per il prodotto su cui stiamo lavorando. Per ogni variante scrivi: Primary Text (lungo, persuasivo, 2-3 paragrafi con emoji), Headline (max 40 caratteri, impattante), Description (1 riga), CTA. Usa angoli diversi per ogni variante: urgenza, social proof, beneficio diretto, curiosità, FOMO.",
+  prompt_launch_strategy: "Crea una strategia di lancio completa per Facebook Ads per il prodotto su cui stiamo lavorando. Include: struttura campagna (CBO/ABO, quanti adset, quanti ads per adset), targeting dettagliato (interessi specifici, lookalike, custom audience), budget giornaliero consigliato per test e scaling, timeline 7 giorni step-by-step, creative testing plan, KPI target, kill criteria, e scaling plan.",
+  prompt_translate_landing: "In che lingua vuoi tradurre la landing page? Dimmi la lingua e procedo subito con la traduzione.",
 }
 
 function formatTime() {
@@ -53,6 +56,93 @@ function renderMarkdown(text: string) {
     .replace(/\*(.*?)\*/g, "<em>$1</em>")
     .replace(/`(.*?)`/g, '<code class="bg-black/30 px-1.5 py-0.5 rounded text-sm">$1</code>')
     .replace(/\n/g, "<br>")
+}
+
+function elementorToHtml(json: any): string {
+  const renderWidget = (w: any): string => {
+    const s = w.settings || {}
+    const align = s.align || s.text_align || "center"
+    const color = s.title_color || s.text_color || ""
+    const cs = color ? `color:${color};` : ""
+    switch (w.widgetType) {
+      case "heading": {
+        const tag = s.header_size || "h2"
+        const fs = s.typography_font_size?.size
+        const fss = fs ? `font-size:${fs}${s.typography_font_size?.unit || "px"};` : ""
+        const fw = s.typography_font_weight ? `font-weight:${s.typography_font_weight};` : ""
+        return `<${tag} style="text-align:${align};${cs}${fss}${fw}margin:12px 0;line-height:1.2">${s.title || ""}</${tag}>`
+      }
+      case "text-editor":
+        return `<div style="text-align:${align};${cs}margin:12px 0;line-height:1.7;font-size:16px">${s.editor || ""}</div>`
+      case "button": {
+        const bg = s.background_color || s.button_background_color || "#e74c3c"
+        const tc = s.button_text_color || "#fff"
+        const br = s.border_radius?.size ?? 5
+        return `<div style="text-align:${align};margin:24px 0"><a style="display:inline-block;padding:16px 48px;background:${bg};color:${tc};text-decoration:none;border-radius:${br}px;font-weight:bold;font-size:18px;letter-spacing:.5px;box-shadow:0 4px 15px rgba(0,0,0,.2)">${s.text || s.button_text || "ORDINA ORA"}</a></div>`
+      }
+      case "image":
+        return s.image?.url
+          ? `<div style="text-align:${align};margin:16px 0"><img src="${s.image.url}" style="max-width:100%;height:auto;border-radius:8px" /></div>`
+          : `<div style="text-align:center;margin:16px 0;padding:80px 20px;background:linear-gradient(135deg,#667eea,#764ba2);border-radius:12px;color:#fff;font-size:48px">📷</div>`
+      case "icon-list": {
+        const items = s.icon_list || []
+        if (!items.length) return ""
+        return `<ul style="list-style:none;padding:0;margin:16px auto;max-width:500px">${items.map((it: any) =>
+          `<li style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid rgba(0,0,0,.05)"><span style="color:#27ae60;font-size:20px">✓</span><span style="font-size:15px">${it.text || ""}</span></li>`
+        ).join("")}</ul>`
+      }
+      case "testimonial":
+        return `<div style="background:#f8f9fa;padding:24px;border-radius:12px;margin:16px 0;border-left:4px solid #3498db;max-width:600px;${align === "center" ? "margin-left:auto;margin-right:auto" : ""}">
+          <p style="font-style:italic;font-size:15px;line-height:1.6;margin-bottom:12px;color:#555">"${s.testimonial_content || ""}"</p>
+          <p style="font-weight:600;color:#333;font-size:14px">— ${s.testimonial_name || ""} ${s.testimonial_job ? `<span style="color:#888;font-weight:400">(${s.testimonial_job})</span>` : ""}</p></div>`
+      case "counter": {
+        const num = s.ending_number || s.starting_number || "0"
+        return `<div style="text-align:${align};margin:16px 0"><span style="font-size:48px;font-weight:800;color:${color || "#e74c3c"}">${s.prefix || ""}${num}${s.suffix || ""}</span>${s.title ? `<p style="font-size:14px;color:#666;margin-top:4px">${s.title}</p>` : ""}</div>`
+      }
+      case "star-rating":
+        return `<div style="text-align:${align};margin:8px 0;font-size:24px;color:#f1c40f">${"★".repeat(Math.round(Number(s.rating) || 5))}</div>`
+      case "divider":
+        return `<hr style="border:none;border-top:1px solid rgba(0,0,0,.1);margin:24px auto;max-width:80%" />`
+      case "spacer":
+        return `<div style="height:${s.space?.size || 30}px"></div>`
+      case "form":
+        return `<div style="background:#f8f9fa;padding:32px;border-radius:12px;margin:20px auto;max-width:500px;text-align:center">
+          <input style="width:100%;padding:14px;margin:6px 0;border:1px solid #ddd;border-radius:8px;font-size:15px" placeholder="Nome" />
+          <input style="width:100%;padding:14px;margin:6px 0;border:1px solid #ddd;border-radius:8px;font-size:15px" placeholder="Email" />
+          <input style="width:100%;padding:14px;margin:6px 0;border:1px solid #ddd;border-radius:8px;font-size:15px" placeholder="Telefono" />
+          <button style="width:100%;padding:16px;margin-top:12px;background:#e74c3c;color:#fff;border:none;border-radius:8px;font-size:18px;font-weight:bold;cursor:pointer">${s.button_text || s.submit_text || "ORDINA ORA"}</button></div>`
+      default: {
+        const txt = s.title || s.editor || s.text || s.description || s.content || ""
+        return txt ? `<div style="text-align:${align};${cs}margin:10px 0;line-height:1.6">${txt}</div>` : ""
+      }
+    }
+  }
+  const processEl = (el: any): string => {
+    if (!el) return ""
+    if (el.elType === "widget") return renderWidget(el)
+    if (el.elements?.length) {
+      const inner = el.elements.map(processEl).join("\n")
+      if (el.elType === "column") {
+        const w = el.settings?._column_size || 100
+        return `<div style="flex:0 0 ${w}%;max-width:${w}%;padding:0 15px">${inner}</div>`
+      }
+      if (el.elType === "section") {
+        const st = el.settings || {}
+        let bg = st.background_color ? `background-color:${st.background_color};` : ""
+        if (st.background_image?.url) bg += `background-image:url('${st.background_image.url}');background-size:cover;background-position:center;`
+        const pad = st.padding
+        const ps = pad ? `padding:${pad.top || 40}px ${pad.right || 20}px ${pad.bottom || 40}px ${pad.left || 20}px;` : "padding:40px 20px;"
+        const cols = el.elements.filter((e: any) => e.elType === "column").length
+        return `<section style="${bg}${ps}"><div style="max-width:900px;margin:0 auto;display:flex;${cols > 1 ? "flex-direction:row;flex-wrap:wrap;" : "flex-direction:column;"}align-items:center">${inner}</div></section>`
+      }
+      return inner
+    }
+    return ""
+  }
+  const body = (json.content || []).map(processEl).join("\n")
+  const pageBg = json.page_settings?.background_color || "#ffffff"
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${json.title || "Landing Preview"}</title>
+<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:${pageBg};color:#333}img{max-width:100%;height:auto}a{text-decoration:none;cursor:pointer}h1{font-size:2.5em;font-weight:800}h2{font-size:2em;font-weight:700}h3{font-size:1.5em;font-weight:600}section{overflow:hidden}</style></head><body>${body}</body></html>`
 }
 
 const AGENT_ROLE_TEMPLATE = `Sei l'AI Assistant di FB Ads Manager — un esperto di performance marketing e gestione campagne Facebook Ads.
@@ -128,6 +218,8 @@ export default function AgentPage() {
   const [toolContext, setToolContext] = useState<any>(null)
   const [productData, setProductData] = useState<any>({})
   const [generatedContent, setGeneratedContent] = useState<any>({})
+  const [showPreview, setShowPreview] = useState(false)
+  const [previewHtml, setPreviewHtml] = useState("")
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const agentSupabase = useRef(createBrowserClient(AGENT_URL, AGENT_KEY))
@@ -245,7 +337,7 @@ export default function AgentPage() {
     return texts
   }
 
-  const executeFunnelAction = async (actionName: string, data: any): Promise<string> => {
+  const executeFunnelAction = async (actionName: string, data: any): Promise<string | { message: string; actions?: any[] }> => {
     try {
       setProductData((prev: any) => ({ ...prev, ...data }))
       const merged = { ...productData, ...data }
@@ -271,8 +363,20 @@ export default function AgentPage() {
         })
         if (result.json) {
           setGeneratedContent((prev: any) => ({ ...prev, landing: result.json }))
+          const html = elementorToHtml(result.json)
+          setPreviewHtml(html)
+          setShowPreview(true)
           const sections = result.json.content?.length || 0
-          return `Landing page generata con successo! ${sections} sezioni, ${result.tokens_used || 0} tokens. Puoi scaricarla (JSON Elementor) o copiarla.`
+          return {
+            message: `Landing page generata con successo! ${sections} sezioni.\n\nL'anteprima è aperta — controlla il risultato.\n\n**Cosa vuoi fare adesso?**`,
+            actions: [
+              { label: "Vedi Anteprima", value: "preview_landing" },
+              { label: "Crea Copy Ads Facebook", value: "prompt_ad_copy" },
+              { label: "Crea Script Video Ads", value: "create_video_ads", params: merged },
+              { label: "Strategia Lancio FB", value: "prompt_launch_strategy" },
+              { label: "Traduci Landing", value: "prompt_translate_landing" },
+            ],
+          }
         }
         return result.error || "Errore nella generazione della landing"
       }
@@ -478,7 +582,11 @@ export default function AgentPage() {
         addMessage({ role: "agent", content: actionResult.message, time: formatTime(), offers: actionResult.offers })
       } else if (shouldExecute && actionName && funnelActions.includes(actionName)) {
         const funnelResult = await executeFunnelAction(actionName, extractedData)
-        addMessage({ role: "agent", content: funnelResult, time: formatTime() })
+        if (typeof funnelResult === "string") {
+          addMessage({ role: "agent", content: funnelResult, time: formatTime() })
+        } else {
+          addMessage({ role: "agent", content: funnelResult.message, time: formatTime(), actions: funnelResult.actions })
+        }
       } else if (actionName && (result.confidence || 0) >= 0.5) {
         const labels: Record<string, string> = {
           pause_campaign: `Pausa "${extractedData.campaignName || ""}"`,
@@ -524,6 +632,14 @@ export default function AgentPage() {
   }
 
   const handleQuickAction = async (value: string, params?: any) => {
+    if (value === "preview_landing") {
+      if (generatedContent.landing) {
+        setPreviewHtml(elementorToHtml(generatedContent.landing))
+        setShowPreview(true)
+      }
+      return
+    }
+
     const adsActions = ["pause_campaign", "activate_campaign", "pause_multiple", "activate_multiple", "update_budget", "sync_campaigns", "get_campaign_details", "sync_traffic_manager", "search_offers", "fetch_offers"]
     const funnelActions = ["create_landing", "create_video_ads", "create_retargeting", "create_funnel", "translate_landing"]
 
@@ -538,7 +654,11 @@ export default function AgentPage() {
     if (funnelActions.includes(value) && params) {
       setIsProcessing(true)
       const result = await executeFunnelAction(value, params)
-      addMessage({ role: "agent", content: result, time: formatTime() })
+      if (typeof result === "string") {
+        addMessage({ role: "agent", content: result, time: formatTime() })
+      } else {
+        addMessage({ role: "agent", content: result.message, time: formatTime(), actions: result.actions })
+      }
       setIsProcessing(false)
       return
     }
@@ -570,14 +690,9 @@ export default function AgentPage() {
   }
 
   const previewLanding = (content: any) => {
-    let html = ""
-    if (typeof content === "string") {
-      html = content
-    } else {
-      html = `<html><head><style>body{font-family:Arial,sans-serif;max-width:800px;margin:0 auto;padding:20px}</style></head><body><h1>Landing Preview</h1><pre>${JSON.stringify(content, null, 2)}</pre></body></html>`
-    }
-    const w = window.open("", "_blank")
-    if (w) { w.document.write(html); w.document.close() }
+    const html = typeof content === "string" ? content : elementorToHtml(content)
+    setPreviewHtml(html)
+    setShowPreview(true)
   }
 
   return (
@@ -714,6 +829,72 @@ export default function AgentPage() {
           </button>
         </div>
       </div>
+
+      {showPreview && previewHtml && (
+        <div className="fixed inset-0 z-50 bg-black/90 flex flex-col">
+          <div className="flex items-center justify-between px-4 py-3 bg-[#0e1621] border-b border-white/10 shrink-0">
+            <div className="flex items-center gap-3">
+              <Eye size={18} className="text-green-400" />
+              <h3 className="text-white font-semibold text-sm">Anteprima Landing Page</h3>
+            </div>
+            <div className="flex items-center gap-2">
+              {generatedContent.landing && (
+                <>
+                  <button onClick={() => copyToClipboard(generatedContent.landing)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-white/10 text-gray-300 hover:bg-white/20 hover:text-white transition-colors">
+                    <Copy size={12} /> Copia JSON
+                  </button>
+                  <button onClick={() => downloadContent(generatedContent.landing, "landing.json")}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-white/10 text-gray-300 hover:bg-white/20 hover:text-white transition-colors">
+                    <Download size={12} /> Scarica
+                  </button>
+                  <button onClick={() => { const w = window.open("", "_blank"); if (w) { w.document.write(previewHtml); w.document.close() } }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-white/10 text-gray-300 hover:bg-white/20 hover:text-white transition-colors">
+                    <Rocket size={12} /> Apri Tab
+                  </button>
+                </>
+              )}
+              <button onClick={() => setShowPreview(false)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-red-500/20 text-red-300 hover:bg-red-500/40 hover:text-white transition-colors ml-2">
+                ✕ Chiudi
+              </button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-hidden flex">
+            <div className="flex-1 bg-white">
+              <iframe srcDoc={previewHtml} className="w-full h-full border-none" sandbox="allow-same-origin" title="Landing Preview" />
+            </div>
+            <div className="w-64 bg-[#0e1621] p-4 border-l border-white/10 flex flex-col gap-3 shrink-0 overflow-y-auto">
+              <p className="text-xs text-gray-400 uppercase tracking-wider font-semibold">Prossimi Passi</p>
+              <button onClick={() => { setShowPreview(false); handleQuickAction("prompt_ad_copy") }}
+                className="w-full px-3 py-2.5 rounded-lg text-xs font-medium text-left bg-purple-500/15 border border-purple-500/30 text-purple-300 hover:bg-purple-500/30 transition-colors">
+                📝 Crea Copy Ads Facebook
+              </button>
+              <button onClick={() => { setShowPreview(false); handleQuickAction("prompt_video") }}
+                className="w-full px-3 py-2.5 rounded-lg text-xs font-medium text-left bg-blue-500/15 border border-blue-500/30 text-blue-300 hover:bg-blue-500/30 transition-colors">
+                🎬 Crea Script Video Ads
+              </button>
+              <button onClick={() => { setShowPreview(false); handleQuickAction("prompt_launch_strategy") }}
+                className="w-full px-3 py-2.5 rounded-lg text-xs font-medium text-left bg-green-500/15 border border-green-500/30 text-green-300 hover:bg-green-500/30 transition-colors">
+                🚀 Strategia Lancio FB
+              </button>
+              <button onClick={() => { setShowPreview(false); handleQuickAction("prompt_translate_landing") }}
+                className="w-full px-3 py-2.5 rounded-lg text-xs font-medium text-left bg-yellow-500/15 border border-yellow-500/30 text-yellow-300 hover:bg-yellow-500/30 transition-colors">
+                🌍 Traduci Landing
+              </button>
+              <button onClick={() => { setShowPreview(false); if (generatedContent.landing) { handleQuickAction("create_retargeting", productData) } }}
+                className="w-full px-3 py-2.5 rounded-lg text-xs font-medium text-left bg-pink-500/15 border border-pink-500/30 text-pink-300 hover:bg-pink-500/30 transition-colors">
+                🎯 Crea Retargeting Ads
+              </button>
+              <hr className="border-white/10 my-1" />
+              <button onClick={() => { setShowPreview(false); handleQuickAction("prompt_funnel") }}
+                className="w-full px-3 py-2.5 rounded-lg text-xs font-medium text-left bg-gradient-to-r from-purple-500/20 to-pink-500/20 border border-purple-500/30 text-white hover:from-purple-500/30 hover:to-pink-500/30 transition-colors">
+                ⚡ Funnel Completo (Landing + Video + Retargeting)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

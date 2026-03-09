@@ -218,6 +218,9 @@ export async function POST(request: NextRequest) {
       const { data: managers } = await serviceClient.from("traffic_managers").select("*")
       if (!managers || managers.length === 0) return NextResponse.json({ success: false, message: "Nessun Traffic Manager collegato" })
 
+      const searchId = params?.offerId
+      const searchTerm = params?.search
+
       const allOffers: any[] = []
       for (const m of managers) {
         if (!m.api_base_url || !m.api_key) continue
@@ -231,7 +234,7 @@ export async function POST(request: NextRequest) {
             const data = await res.json()
             const offers = Array.isArray(data) ? data : data?.data || data?.offers || []
             for (const o of offers) {
-              allOffers.push({
+              const offer = {
                 tm: m.name,
                 id: o.id || o.offer_id,
                 nome: o.name || o.offer_name,
@@ -239,13 +242,33 @@ export async function POST(request: NextRequest) {
                 paese: o.country || o.geo || o.countries,
                 payout: o.payout,
                 verticale: o.vertical || o.category,
-              })
+                descrizione: o.description || o.short_description || "",
+                prezzo: o.price || o.user_price || o.product_price || "",
+                url: o.url || o.preview_url || "",
+                immagine: o.image || o.thumbnail || o.logo || "",
+                valuta: o.currency || "",
+              }
+              if (searchId && String(offer.id) !== String(searchId)) continue
+              if (searchTerm && !offer.nome?.toLowerCase().includes(searchTerm.toLowerCase()) && String(offer.id) !== String(searchTerm)) continue
+              allOffers.push(offer)
             }
           }
         } catch { /* skip */ }
       }
 
-      if (allOffers.length === 0) return NextResponse.json({ success: true, message: "Nessuna offerta trovata dai Traffic Manager collegati" })
+      if (allOffers.length === 0) {
+        return NextResponse.json({ success: true, message: searchId ? `Offerta #${searchId} non trovata nel catalogo` : "Nessuna offerta trovata" })
+      }
+
+      if (searchId || (searchTerm && allOffers.length <= 5)) {
+        const o = allOffers[0]
+        return NextResponse.json({
+          success: true,
+          message: `Offerta trovata: "${o.nome}" (ID: ${o.id}, Paese: ${o.paese}, Payout: €${o.payout}, Verticale: ${o.verticale}${o.prezzo ? `, Prezzo: ${o.prezzo}` : ""})`,
+          type: "offer_detail",
+          offers: allOffers,
+        })
+      }
 
       return NextResponse.json({
         success: true,

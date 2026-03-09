@@ -535,87 +535,116 @@ export default function AgentPage() {
     if (isProcessing) return
     setIsProcessing(true)
 
-    const newHistory = [...chatHistory, { role: "user", content: text }]
-    setChatHistory(newHistory)
+    const adsActions = [
+      "pause_campaign", "activate_campaign", "pause_multiple", "activate_multiple",
+      "update_budget", "sync_campaigns", "get_campaign_details",
+      "sync_traffic_manager", "search_offers", "fetch_offers",
+    ]
+    const funnelActions = [
+      "create_landing", "create_video_ads", "create_retargeting",
+      "create_funnel", "translate_landing",
+    ]
+    const actionLabels: Record<string, (d: any) => string> = {
+      pause_campaign: d => `Pausa "${d.campaignName || ""}"`,
+      activate_campaign: d => `Attiva "${d.campaignName || ""}"`,
+      pause_multiple: d => `Pausa ${(d.campaignNames || []).length} campagne`,
+      activate_multiple: d => `Attiva ${(d.campaignNames || []).length} campagne`,
+      update_budget: d => `Budget → €${d.budget || "?"}`,
+      sync_campaigns: () => "Sincronizza",
+      get_campaign_details: () => "Dettagli Campagna",
+      sync_traffic_manager: () => "Sincronizza Traffic Manager",
+      search_offers: () => "Cerca Offerte Network",
+      fetch_offers: () => "Carica Offerte Network",
+      create_landing: d => `Crea Landing "${d.nome || ""}"`,
+      create_video_ads: d => `Crea Video Ads "${d.nome || ""}"`,
+      create_retargeting: d => `Crea Retargeting "${d.nome || ""}"`,
+      create_funnel: d => `Funnel Completo "${d.nome || ""}"`,
+      translate_landing: d => `Traduci in ${d.lingua || "..."}`,
+    }
+
+    let runningHistory = [...chatHistory, { role: "user", content: text }]
+    setChatHistory(runningHistory)
+
+    let loopCount = 0
+    const maxLoops = 5
 
     try {
-      const res = await fetch("/api/agent/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: text,
-          history: newHistory.slice(-20),
-        }),
-      })
+      while (loopCount < maxLoops) {
+        const msg = loopCount === 0 ? text : runningHistory[runningHistory.length - 1].content
 
-      if (!res.ok) {
-        addMessage({ role: "agent", content: `Errore AI: ${res.status}. Controlla le API key nelle Impostazioni.`, time: formatTime() })
-        setIsProcessing(false)
-        return
-      }
+        const res = await fetch("/api/agent/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: msg, history: runningHistory.slice(-20) }),
+        })
 
-      const result = await res.json()
-      const reply = result.reply || result.error || "Non ho capito, puoi ripetere?"
-      setChatHistory(prev => [...prev, { role: "assistant", content: reply }])
-      addMessage({ role: "agent", content: reply, time: formatTime() })
-
-      const shouldExecute = result.autoExecute === true || (result.confidence || 0) >= 0.95
-      const actionName = result.suggestedAction
-      const extractedData = result.extractedData || {}
-      const adsActions = [
-        "pause_campaign", "activate_campaign", "pause_multiple", "activate_multiple",
-        "update_budget", "sync_campaigns", "get_campaign_details",
-        "sync_traffic_manager", "search_offers", "fetch_offers",
-      ]
-      const funnelActions = [
-        "create_landing", "create_video_ads", "create_retargeting",
-        "create_funnel", "translate_landing",
-      ]
-
-      if (extractedData && Object.keys(extractedData).length > 0) {
-        setProductData((prev: any) => ({ ...prev, ...extractedData }))
-      }
-
-      if (shouldExecute && actionName && adsActions.includes(actionName)) {
-        addMessage({ role: "system", content: `Esecuzione: ${actionName}...`, time: formatTime() })
-        const actionResult = await executeAction(actionName, extractedData)
-        addMessage({ role: "agent", content: actionResult.message, time: formatTime(), offers: actionResult.offers })
-      } else if (shouldExecute && actionName && funnelActions.includes(actionName)) {
-        const funnelResult = await executeFunnelAction(actionName, extractedData)
-        if (typeof funnelResult === "string") {
-          addMessage({ role: "agent", content: funnelResult, time: formatTime() })
-        } else {
-          addMessage({ role: "agent", content: funnelResult.message, time: formatTime(), actions: funnelResult.actions })
+        if (!res.ok) {
+          addMessage({ role: "agent", content: `Errore AI: ${res.status}. Controlla le API key nelle Impostazioni.`, time: formatTime() })
+          break
         }
-      } else if (actionName && (result.confidence || 0) >= 0.5) {
-        const labels: Record<string, string> = {
-          pause_campaign: `Pausa "${extractedData.campaignName || ""}"`,
-          activate_campaign: `Attiva "${extractedData.campaignName || ""}"`,
-          pause_multiple: `Pausa ${(extractedData.campaignNames || []).length} campagne`,
-          activate_multiple: `Attiva ${(extractedData.campaignNames || []).length} campagne`,
-          update_budget: `Budget → €${extractedData.budget || "?"}`,
-          sync_campaigns: "Sincronizza",
-          get_campaign_details: "Dettagli Campagna",
-          sync_traffic_manager: "Sincronizza Traffic Manager",
-          search_offers: "Cerca Offerte Network",
-          fetch_offers: "Carica Offerte Network",
-          create_landing: `Crea Landing Page "${extractedData.nome || ""}"`,
-          create_video_ads: `Crea Video Ads "${extractedData.nome || ""}"`,
-          create_retargeting: `Crea Retargeting "${extractedData.nome || ""}"`,
-          create_funnel: `Funnel Completo "${extractedData.nome || ""}"`,
-          translate_landing: `Traduci in ${extractedData.lingua || "..."}`,
+
+        const result = await res.json()
+        const reply = result.reply || result.error || "Non ho capito, puoi ripetere?"
+        runningHistory = [...runningHistory, { role: "assistant", content: reply }]
+        setChatHistory([...runningHistory])
+        addMessage({ role: "agent", content: reply, time: formatTime() })
+
+        const shouldExecute = result.autoExecute === true || (result.confidence || 0) >= 0.95
+        const actionName = result.suggestedAction
+        const extractedData = result.extractedData || {}
+
+        if (extractedData && Object.keys(extractedData).length > 0) {
+          setProductData((prev: any) => ({ ...prev, ...extractedData }))
         }
-        const label = labels[actionName] || actionName
-        const allActions = [...adsActions, ...funnelActions]
-        if (allActions.includes(actionName)) {
-          setMessages(prev => {
-            const last = prev[prev.length - 1]
-            if (last?.role === "agent") {
-              return [...prev.slice(0, -1), { ...last, actions: [{ label, value: actionName, params: extractedData }] }]
+
+        if (!shouldExecute || !actionName) {
+          if (actionName && (result.confidence || 0) >= 0.5) {
+            const label = actionLabels[actionName]?.(extractedData) || actionName
+            if ([...adsActions, ...funnelActions].includes(actionName)) {
+              setMessages(prev => {
+                const last = prev[prev.length - 1]
+                if (last?.role === "agent") return [...prev.slice(0, -1), { ...last, actions: [{ label, value: actionName, params: extractedData }] }]
+                return prev
+              })
             }
-            return prev
-          })
+          }
+          break
         }
+
+        let actionResultText = ""
+        let actionResultOffers: any[] | undefined
+
+        if (adsActions.includes(actionName)) {
+          addMessage({ role: "system", content: `Esecuzione: ${actionName}...`, time: formatTime() })
+          const actionResult = await executeAction(actionName, extractedData)
+          actionResultText = actionResult.message
+          actionResultOffers = actionResult.offers
+          addMessage({ role: "agent", content: actionResult.message, time: formatTime(), offers: actionResult.offers })
+        } else if (funnelActions.includes(actionName)) {
+          const funnelResult = await executeFunnelAction(actionName, extractedData)
+          if (typeof funnelResult === "string") {
+            actionResultText = funnelResult
+            addMessage({ role: "agent", content: funnelResult, time: formatTime() })
+          } else {
+            addMessage({ role: "agent", content: funnelResult.message, time: formatTime(), actions: funnelResult.actions })
+            break
+          }
+        } else {
+          break
+        }
+
+        const feedbackParts = [actionResultText]
+        if (actionResultOffers && actionResultOffers.length > 0) {
+          const offersSummary = actionResultOffers.slice(0, 15).map(o =>
+            `{id:${o.id}, nome:"${o.nome}", paese:"${o.paese}", payout:${o.payout}, verticale:"${o.verticale}", prezzo:"${o.prezzo || ""}", descrizione:"${o.descrizione || ""}"}`
+          ).join(",\n")
+          feedbackParts.push(`\nDati offerte ricevuti:\n[${offersSummary}]`)
+        }
+
+        runningHistory = [...runningHistory, { role: "user", content: `[SISTEMA — Risultato azione "${actionName}"]:\n${feedbackParts.join("")}` }]
+        setChatHistory([...runningHistory])
+
+        loopCount++
       }
     } catch (e) {
       addMessage({ role: "agent", content: "Errore di connessione. Riprova.", time: formatTime() })

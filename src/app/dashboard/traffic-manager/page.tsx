@@ -325,15 +325,9 @@ export default function TrafficManagerPage() {
               <Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Es. Tracker principale" />
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">URL del tracker</label>
-              <Input value={form.api_base_url} onChange={e => {
-                setForm({ ...form, api_base_url: e.target.value })
-                const url = e.target.value.toLowerCase()
-                if (url.includes("voluum")) applyPreset("voluum")
-                else if (url.includes("redtrack")) applyPreset("redtrack")
-                else if (url.includes("keitaro") || url.includes("click.php")) applyPreset("keitaro")
-                else if (url.includes("binom")) applyPreset("binom")
-              }} placeholder="https://il-tuo-tracker.com" />
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">URL Base API</label>
+              <Input value={form.api_base_url} onChange={e => setForm({ ...form, api_base_url: e.target.value })} placeholder="https://www.offersify.io/api/v1" />
+              <p className="text-xs text-gray-400 mt-1">Inserisci l&apos;URL base, il sistema aggiungerà automaticamente gli endpoint necessari (es. /approvalRate)</p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -400,7 +394,7 @@ export default function TrafficManagerPage() {
                       </Button>
                     </div>
                   </div>
-                  <p className="text-xs text-gray-500 truncate mb-2">{m.api_base_url}{m.endpoint_path}</p>
+                  <p className="text-xs text-gray-500 truncate mb-2">API: {m.api_base_url}</p>
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-gray-400">
                       {m.last_synced_at ? `Sync: ${new Date(m.last_synced_at).toLocaleString("it")}` : "Mai sincronizzato"}

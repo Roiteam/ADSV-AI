@@ -44,15 +44,7 @@ export async function POST(request: NextRequest) {
     const { action } = body
 
     if (action === "create") {
-      let baseUrl = body.api_base_url || ""
-      let endpointPath = ""
-      try {
-        const parsed = new URL(baseUrl)
-        if (parsed.pathname && parsed.pathname !== "/") {
-          endpointPath = parsed.pathname
-          baseUrl = `${parsed.protocol}//${parsed.host}`
-        }
-      } catch { /* not a valid URL yet */ }
+      const baseUrl = (body.api_base_url || "").replace(/\/$/, "")
 
       const { data, error } = await serviceClient.from("traffic_managers").insert({
         name: body.name,
@@ -61,7 +53,7 @@ export async function POST(request: NextRequest) {
         api_secret: body.api_secret || null,
         auth_type: body.auth_type || "bearer",
         auth_param_name: body.auth_param_name || "Authorization",
-        endpoint_path: endpointPath || body.endpoint_path || "/",
+        endpoint_path: body.endpoint_path || "/approvalRate",
         response_mapping: body.response_mapping || {},
         extra_params: body.extra_params || {},
         is_active: true,
@@ -93,11 +85,9 @@ export async function POST(request: NextRequest) {
       const dateFrom = body.dateFrom || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
       const dateTo = body.dateTo || new Date().toISOString().split("T")[0]
 
-      let apiUrl = manager.api_base_url || ""
-      if (manager.endpoint_path && manager.endpoint_path !== "/") {
-        apiUrl = apiUrl.replace(/\/$/, "") + manager.endpoint_path
-      }
-      apiUrl = apiUrl.replace(/\/$/, "") + `/${dateFrom}/${dateTo}`
+      const base = (manager.api_base_url || "").replace(/\/$/, "")
+      const endpoint = body.endpoint || manager.endpoint_path || "/approvalRate"
+      const apiUrl = `${base}${endpoint}/${dateFrom}/${dateTo}`
 
       const headers: Record<string, string> = { "Accept": "application/json" }
       if (manager.api_key) headers["x-api-key"] = manager.api_key
@@ -202,16 +192,8 @@ export async function POST(request: NextRequest) {
       const today = new Date().toISOString().split("T")[0]
       const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
 
-      let testUrl = (body.api_base_url || "").replace(/\/$/, "")
-      try {
-        const parsed = new URL(testUrl)
-        if (parsed.pathname === "/" || parsed.pathname === "") {
-          if (body.endpoint_path && body.endpoint_path !== "/") {
-            testUrl = testUrl + body.endpoint_path
-          }
-        }
-      } catch { /* not valid URL */ }
-      testUrl = testUrl + `/${weekAgo}/${today}`
+      const base = (body.api_base_url || "").replace(/\/$/, "")
+      const testUrl = `${base}/approvalRate/${weekAgo}/${today}`
 
       const headers: Record<string, string> = { "Accept": "application/json" }
       if (body.api_key) headers["x-api-key"] = body.api_key

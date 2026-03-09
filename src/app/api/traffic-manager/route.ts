@@ -142,20 +142,19 @@ export async function POST(request: NextRequest) {
           const leads = safeNum(l.total_leads ?? l.total_with_trash ?? r.total_leads ?? r.total)
           const confirmed = safeNum(l.confirmed?.total ?? r.confirmed?.total)
           const canceled = safeNum(l.canceled?.total ?? r.canceled?.total)
-          const toCallback = safeNum(l.to_call_back?.total ?? r.to_call_back?.total)
-          const pendingConv = safeNum(c.pending?.total)
+          const pendingConv = safeNum(c.pending?.total ?? l.to_call_back?.total ?? r.to_call_back?.total)
           const approvedConv = safeNum(c.approved?.total)
           const confirmedPayout = safeNum(l.confirmed?.payout ?? r.confirmed?.payout)
           const approvedPayout = safeNum(c.approved?.payout)
           const doubles = safeNum(l.double ?? r.double)
           const trash = safeNum(l.trash ?? r.trash)
 
-          const effectiveLeads = leads > 0 ? leads : (confirmed + canceled + toCallback + doubles + trash)
+          const effectiveLeads = leads > 0 ? leads : (confirmed + canceled + pendingConv + doubles + trash)
 
           totalLeads += effectiveLeads
           totalConfirmed += confirmed
           totalCanceled += canceled
-          totalPending += toCallback + pendingConv
+          totalPending += pendingConv
           totalApprovedConv += approvedConv
           totalRevenue += confirmedPayout + approvedPayout
           totalDouble += doubles

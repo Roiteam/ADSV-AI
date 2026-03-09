@@ -188,6 +188,36 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    if (action === "fetch_offers") {
+      const { data: manager } = await serviceClient.from("traffic_managers").select("*").eq("id", body.id).single()
+      if (!manager) return NextResponse.json({ error: "Not found" }, { status: 404 })
+
+      const base = (manager.api_base_url || "").replace(/\/$/, "")
+      const apiUrl = `${base}/offers`
+
+      const headers: Record<string, string> = { "Accept": "application/json" }
+      if (manager.api_key) headers["x-api-key"] = manager.api_key
+      if (manager.api_secret) headers["x-user-id"] = manager.api_secret
+
+      try {
+        const res = await fetch(apiUrl, { headers })
+        if (!res.ok) {
+          const errText = await res.text()
+          return NextResponse.json({ error: `API Error ${res.status}: ${errText.slice(0, 200)}` }, { status: 400 })
+        }
+        const apiData = await res.json()
+        let offers: any[] = []
+        if (Array.isArray(apiData)) offers = apiData
+        else if (apiData?.data && Array.isArray(apiData.data)) offers = apiData.data
+        else if (apiData?.offers && Array.isArray(apiData.offers)) offers = apiData.offers
+        else if (typeof apiData === "object" && apiData !== null) offers = [apiData]
+
+        return NextResponse.json({ success: true, offers, total: offers.length })
+      } catch (e) {
+        return NextResponse.json({ error: `Connessione fallita: ${e instanceof Error ? e.message : "errore"}` }, { status: 400 })
+      }
+    }
+
     if (action === "test") {
       const today = new Date().toISOString().split("T")[0]
       const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]

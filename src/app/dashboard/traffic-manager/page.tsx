@@ -48,6 +48,8 @@ export default function TrafficManagerPage() {
   const [dateLabel, setDateLabel] = useState("Questo Mese")
   const [selectedManager, setSelectedManager] = useState<string>("all")
   const [syncResult, setSyncResult] = useState<any>(null)
+  const [offers, setOffers] = useState<any[]>([])
+  const [loadingOffers, setLoadingOffers] = useState(false)
 
   const [form, setForm] = useState({
     id: "",
@@ -245,6 +247,30 @@ export default function TrafficManagerPage() {
       extra_params_text: Object.keys(m.extra_params || {}).length > 0 ? JSON.stringify(m.extra_params, null, 2) : "",
     })
     setShowForm(true)
+  }
+
+  const fetchOffers = async () => {
+    if (managers.length === 0) return
+    setLoadingOffers(true)
+    const allOffers: any[] = []
+    for (const m of managers) {
+      if (selectedManager !== "all" && m.id !== selectedManager) continue
+      try {
+        const res = await fetch("/api/traffic-manager", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "fetch_offers", id: m.id }),
+        })
+        const json = await res.json()
+        if (json.offers) {
+          for (const o of json.offers) {
+            allOffers.push({ ...o, _tmName: m.name, _tmId: m.id })
+          }
+        }
+      } catch { /* ignore */ }
+    }
+    setOffers(allOffers)
+    setLoadingOffers(false)
   }
 
   const filteredData = tmData.filter(d => {
@@ -538,10 +564,74 @@ export default function TrafficManagerPage() {
 
               <Tabs defaultValue="table">
                 <TabsList>
-                  <TabsTrigger value="table">Dettaglio Offerte</TabsTrigger>
+                  <TabsTrigger value="table">Dettaglio Approval</TabsTrigger>
+                  <TabsTrigger value="offers" onClick={() => { if (offers.length === 0) fetchOffers() }}>Offerte</TabsTrigger>
                   <TabsTrigger value="trend">Trend</TabsTrigger>
                   <TabsTrigger value="distribution">Distribuzione</TabsTrigger>
                 </TabsList>
+
+                <TabsContent value="offers">
+                  <Card>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <CardTitle>Lista Offerte</CardTitle>
+                        <Button variant="outline" size="sm" onClick={fetchOffers} disabled={loadingOffers}>
+                          <RefreshCw size={14} className={loadingOffers ? "animate-spin" : ""} />
+                          {loadingOffers ? "Caricamento..." : "Aggiorna"}
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      {loadingOffers ? (
+                        <div className="p-12 text-center text-gray-400">
+                          <RefreshCw size={24} className="animate-spin mx-auto mb-2" />
+                          Caricamento offerte...
+                        </div>
+                      ) : offers.length === 0 ? (
+                        <div className="p-12 text-center text-gray-400">
+                          <p>Nessuna offerta trovata</p>
+                          <p className="text-xs mt-1">Clicca &quot;Aggiorna&quot; per importare le offerte</p>
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b bg-gray-50 dark:bg-gray-800/50">
+                                <th className="text-left py-3 px-4 font-medium text-gray-500">ID</th>
+                                <th className="text-left py-3 px-4 font-medium text-gray-500">Nome Offerta</th>
+                                {selectedManager === "all" && <th className="text-left py-3 px-4 font-medium text-gray-500">TM</th>}
+                                <th className="text-left py-3 px-4 font-medium text-gray-500">Stato</th>
+                                <th className="text-left py-3 px-4 font-medium text-gray-500">Paese</th>
+                                <th className="text-right py-3 px-4 font-medium text-gray-500">Payout</th>
+                                <th className="text-left py-3 px-4 font-medium text-gray-500">Verticale</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {offers.map((o, i) => (
+                                <tr key={i} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                                  <td className="py-2 px-4 text-xs text-gray-400">{o.id || o.offer_id || "-"}</td>
+                                  <td className="py-2 px-4 font-medium text-gray-900 dark:text-white">{o.name || o.offer_name || "-"}</td>
+                                  {selectedManager === "all" && <td className="py-2 px-4 text-xs text-gray-500">{o._tmName}</td>}
+                                  <td className="py-2 px-4">
+                                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                                      (o.status === "active" || o.status === "1" || o.active) ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"
+                                    }`}>
+                                      {(o.status === "active" || o.status === "1" || o.active) ? "Attiva" : o.status || "-"}
+                                    </span>
+                                  </td>
+                                  <td className="py-2 px-4 text-gray-500">{o.country || o.geo || o.countries || "-"}</td>
+                                  <td className="py-2 px-4 text-right font-medium text-green-600">{o.payout ? `€${Number(o.payout).toFixed(2)}` : "-"}</td>
+                                  <td className="py-2 px-4 text-gray-500">{o.vertical || o.category || "-"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          <div className="p-3 text-xs text-gray-400 border-t">{offers.length} offerte trovate</div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </TabsContent>
 
                 <TabsContent value="trend" className="space-y-6">
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

@@ -245,8 +245,14 @@ export async function POST(request: NextRequest) {
         } catch { /* skip */ }
       }
 
-      if (allOffers.length === 0) return NextResponse.json({ success: true, message: "Nessuna offerta trovata dai Traffic Manager collegati", offers: [] })
-      return NextResponse.json({ success: true, message: `Trovate ${allOffers.length} offerte dal network`, offers: allOffers })
+      if (allOffers.length === 0) return NextResponse.json({ success: true, message: "Nessuna offerta trovata dai Traffic Manager collegati" })
+
+      const active = allOffers.filter(o => o.stato === "active" || o.stato === "1" || o.stato === 1)
+      const lines = allOffers.slice(0, 50).map(o =>
+        `• **#${o.id}** ${o.nome || "—"} | ${o.paese || "—"} | €${o.payout || "?"} | ${o.verticale || "—"} | ${o.stato === "active" || o.stato === "1" ? "✅ Attiva" : "⏸ " + (o.stato || "?")}`
+      )
+      const summary = `**${allOffers.length} offerte** dal network (${active.length} attive)\n\n${lines.join("\n")}${allOffers.length > 50 ? `\n\n...e altre ${allOffers.length - 50} offerte` : ""}`
+      return NextResponse.json({ success: true, message: summary })
     }
 
     return NextResponse.json({ success: false, message: `Azione "${action}" non supportata` })

@@ -93,19 +93,57 @@ export async function POST(request: NextRequest) {
       if (!token) return NextResponse.json({ success: false, message: "Token mancante" })
 
       const budgetCents = Math.round(Number(newBudget) * 100)
+
       const fbRes = await fetch(`https://graph.facebook.com/v21.0/${campaign.fb_campaign_id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ daily_budget: budgetCents, access_token: token }),
       })
 
-      if (!fbRes.ok) {
-        const err = await fbRes.json().catch(() => ({}))
-        return NextResponse.json({ success: false, message: err?.error?.message || "Errore Facebook" })
+      if (fbRes.ok) {
+        await serviceClient.from("campaigns").update({ daily_budget: budgetCents }).eq("id", campaign.id)
+        return NextResponse.json({ success: true, message: `Budget campagna (CBO) "${campaign.name}" aggiornato a €${newBudget}/giorno` })
+      }
+
+      const campaignErr = await fbRes.json().catch(() => ({}))
+      const errMsg = campaignErr?.error?.message || ""
+
+      const adsetsRes = await fetch(
+        `https://graph.facebook.com/v21.0/${campaign.fb_campaign_id}/adsets?fields=id,name,status,daily_budget&access_token=${token}`
+      )
+      if (!adsetsRes.ok) {
+        return NextResponse.json({ success: false, message: errMsg || "Errore aggiornamento budget" })
+      }
+
+      const adsetsData = await adsetsRes.json()
+      const adsets = adsetsData.data || []
+      const activeAdsets = adsets.filter((a: any) => a.status === "ACTIVE")
+      const targetAdsets = activeAdsets.length > 0 ? activeAdsets : adsets.slice(0, 5)
+
+      if (targetAdsets.length === 0) {
+        return NextResponse.json({ success: false, message: "Nessun ad set trovato per questa campagna" })
+      }
+
+      const results: string[] = []
+      for (const adset of targetAdsets) {
+        const adsetRes = await fetch(`https://graph.facebook.com/v21.0/${adset.id}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ daily_budget: budgetCents, access_token: token }),
+        })
+        if (adsetRes.ok) {
+          results.push(`"${adset.name}": €${newBudget}/giorno ✓`)
+        } else {
+          const adsetErr = await adsetRes.json().catch(() => ({}))
+          results.push(`"${adset.name}": ${adsetErr?.error?.message || "errore"}`)
+        }
       }
 
       await serviceClient.from("campaigns").update({ daily_budget: budgetCents }).eq("id", campaign.id)
-      return NextResponse.json({ success: true, message: `Budget di "${campaign.name}" aggiornato a €${newBudget}/giorno` })
+      return NextResponse.json({
+        success: true,
+        message: `Budget ad set (ABO) di "${campaign.name}" aggiornato:\n${results.join("\n")}`,
+      })
     }
 
     if (action === "sync_campaigns") {

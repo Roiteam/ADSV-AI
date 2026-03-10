@@ -5,6 +5,7 @@ import { createBrowserClient } from "@supabase/ssr"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Send, Bot, RefreshCw, Zap, TrendingDown, TrendingUp, BarChart3, Search, Rocket, FileCode, Video, Copy, Download, Eye, Brain } from "lucide-react"
+import { postProcessLanding, resolveLanguageName } from "@/lib/landing-postprocess"
 
 const AGENT_URL = "https://smwtkyvnmyetlektphyy.supabase.co"
 const AGENT_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNtd3RreXZubXlldGxla3RwaHl5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjAwMzk1MzEsImV4cCI6MjA3NTYxNTUzMX0.9YhnYyA7n9qXMgIOvh64Z9-ylYADrW7x2SysbAGvVp0"
@@ -389,6 +390,25 @@ export default function AgentPage() {
         const geo = (merged.paese || merged.geo || "").toUpperCase()
         const lingua = merged.lingua || geoLangMap[geo] || "Italiano"
 
+        const formFieldsByGeo: Record<string, { fields: string[]; submit: string }> = {
+          ES: { fields: ["Nombre", "Teléfono"], submit: "¡PIDE AHORA!" },
+          IT: { fields: ["Nome", "Telefono"], submit: "ORDINA ORA!" },
+          BG: { fields: ["Име", "Телефон"], submit: "ПОРЪЧАЙ СЕГА!" },
+          PL: { fields: ["Imię", "Telefon"], submit: "ZAMÓW TERAZ!" },
+          PT: { fields: ["Nome", "Telefone"], submit: "PEÇA AGORA!" },
+          FR: { fields: ["Nom", "Téléphone"], submit: "COMMANDEZ MAINTENANT!" },
+          DE: { fields: ["Name", "Telefon"], submit: "JETZT BESTELLEN!" },
+          RO: { fields: ["Nume", "Telefon"], submit: "COMANDĂ ACUM!" },
+          CZ: { fields: ["Jméno", "Telefon"], submit: "OBJEDNAT!" },
+          GR: { fields: ["Όνομα", "Τηλέφωνο"], submit: "ΠΑΡΑΓΓΕΙΛΤΕ ΤΩΡΑ!" },
+          HR: { fields: ["Ime", "Telefon"], submit: "NARUČITE SADA!" },
+          HU: { fields: ["Név", "Telefon"], submit: "RENDELJEN MOST!" },
+          TR: { fields: ["Ad", "Telefon"], submit: "ŞİMDİ SİPARİŞ VER!" },
+          DEFAULT: { fields: ["Name", "Phone"], submit: "ORDER NOW!" },
+        }
+        const formConfig = formFieldsByGeo[geo] || formFieldsByGeo["DEFAULT"]
+        const formPrompt = `\n\nIMPORTANTE: La landing DEVE includere un widget "form" di tipo Elementor con i campi: ${formConfig.fields.join(", ")}. Il bottone submit deve dire "${formConfig.submit}". Il form deve essere posizionato nella parte alta della landing (dopo l'hero) E anche in fondo alla landing. TUTTO il testo deve essere in ${lingua}. NON scrivere nulla in italiano se la lingua è diversa.`
+
         addMessage({ role: "system", content: `Analisi CRO + generazione landing page in ${lingua}... (può richiedere 30-60s)`, time: formatTime() })
         const result = await callEdgeFunction("create", {
           nome: merged.nome || "Prodotto",
@@ -405,16 +425,55 @@ export default function AgentPage() {
           pageType: merged.pageType || "LANDING",
           copywritingFramework: merged.copywritingFramework || "AIDA",
           lingua,
-          customPrompt: merged.customPrompt || "",
+          customPrompt: (merged.customPrompt || "") + formPrompt,
         })
         if (result.json) {
-          setGeneratedContent((prev: any) => ({ ...prev, landing: result.json }))
-          const html = elementorToHtml(result.json)
+          let landingJson = result.json
+          const linguaName = resolveLanguageName(lingua, geo)
+
+          let formModuleJson: any = null
+          if (merged.tm || merged.trafficManager) {
+            try {
+              const tmRes = await fetch("/api/traffic-manager", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "get_form_module", tmName: merged.tm || merged.trafficManager }),
+              })
+              const tmData = await tmRes.json()
+              if (tmData.formModule) formModuleJson = tmData.formModule
+            } catch { /* no form module */ }
+          }
+
+          landingJson = postProcessLanding(landingJson, {
+            productData: {
+              nome: merged.nome,
+              currency: merged.valuta || merged.currency,
+              currencySymbol: merged.currencySymbol || merged.simboloValuta,
+              offerImage: merged.immagine || merged.offerImage,
+              productImages: merged.productImages,
+              offerId: merged.offerId || merged._offerId,
+              selectedLpId: merged.selectedLpId || merged._selectedLpId,
+            },
+            lingua: linguaName,
+            formModuleJson,
+          })
+
+          const postProcessNotes: string[] = []
+          if (formModuleJson) postProcessNotes.push(`Modulo form di ${merged.tm || merged.trafficManager} iniettato`)
+          postProcessNotes.push("Sezione modulo con CTA localizzata aggiunta")
+          postProcessNotes.push("Footer legale tradotto aggiunto")
+          postProcessNotes.push("Padding sezioni compresso")
+          if (merged.immagine || merged.offerImage) postProcessNotes.push("Immagine prodotto iniettata nell'hero")
+
+          addMessage({ role: "system", content: `Post-processing Baba Yaga completato:\n• ${postProcessNotes.join("\n• ")}`, time: formatTime() })
+
+          setGeneratedContent((prev: any) => ({ ...prev, landing: landingJson }))
+          const html = elementorToHtml(landingJson)
           setPreviewHtml(html)
           setShowPreview(true)
-          const sections = result.json.content?.length || 0
+          const sections = landingJson.content?.length || 0
           return {
-            message: `Landing page generata in **${lingua}**! ${sections} sezioni.\n\nL'anteprima è aperta — controlla il risultato.\n\n**Cosa vuoi fare adesso?**`,
+            message: `Landing page generata in **${lingua}**! ${sections} sezioni con post-processing completo (modulo, footer, padding, traduzioni).\n\nL'anteprima è aperta — controlla il risultato.\n\n**Cosa vuoi fare adesso?**`,
             actions: [
               { label: "Vedi Anteprima", value: "preview_landing" },
               { label: "Genera Immagini AI", value: "generate_images", params: { ...merged, lingua } },

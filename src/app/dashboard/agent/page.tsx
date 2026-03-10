@@ -378,7 +378,18 @@ export default function AgentPage() {
       const merged = { ...productData, ...data }
 
       if (actionName === "create_landing") {
-        addMessage({ role: "system", content: "Analisi CRO + generazione landing page... (può richiedere 30-60s)", time: formatTime() })
+        const geoLangMap: Record<string, string> = {
+          ES: "Español", IT: "Italiano", BG: "Български", PL: "Polski", PT: "Português",
+          FR: "Français", DE: "Deutsch", RO: "Română", CZ: "Čeština", GR: "Ελληνικά",
+          HR: "Hrvatski", HU: "Magyar", SK: "Slovenčina", SI: "Slovenščina", RS: "Srpski",
+          TR: "Türkçe", NL: "Nederlands", SE: "Svenska", NO: "Norsk", DK: "Dansk",
+          FI: "Suomi", UK: "English", US: "English", GB: "English", BR: "Português (Brasil)",
+          MX: "Español (México)", AR: "Español (Argentina)", CL: "Español (Chile)", CO: "Español (Colombia)",
+        }
+        const geo = (merged.paese || merged.geo || "").toUpperCase()
+        const lingua = merged.lingua || geoLangMap[geo] || "Italiano"
+
+        addMessage({ role: "system", content: `Analisi CRO + generazione landing page in ${lingua}... (può richiedere 30-60s)`, time: formatTime() })
         const result = await callEdgeFunction("create", {
           nome: merged.nome || "Prodotto",
           descrizione: merged.descrizione || "",
@@ -393,7 +404,7 @@ export default function AgentPage() {
           categoria: merged.categoria || "GADGET",
           pageType: merged.pageType || "LANDING",
           copywritingFramework: merged.copywritingFramework || "AIDA",
-          lingua: merged.lingua || "Italiano",
+          lingua,
           customPrompt: merged.customPrompt || "",
         })
         if (result.json) {
@@ -403,14 +414,14 @@ export default function AgentPage() {
           setShowPreview(true)
           const sections = result.json.content?.length || 0
           return {
-            message: `Landing page generata con successo! ${sections} sezioni.\n\nL'anteprima è aperta — controlla il risultato.\n\n**Cosa vuoi fare adesso?**`,
+            message: `Landing page generata in **${lingua}**! ${sections} sezioni.\n\nL'anteprima è aperta — controlla il risultato.\n\n**Cosa vuoi fare adesso?**`,
             actions: [
               { label: "Vedi Anteprima", value: "preview_landing" },
-              { label: "Genera Immagini AI", value: "generate_images", params: merged },
+              { label: "Genera Immagini AI", value: "generate_images", params: { ...merged, lingua } },
+              { label: "Crea Thank Page", value: "create_thank_page", params: { ...merged, lingua } },
+              { label: "Pubblica su WordPress", value: "publish_wordpress", params: { ...merged, lingua, pageType: "landing", pageTitle: merged.nome || "Landing Page" } },
               { label: "Crea Copy Ads Facebook", value: "prompt_ad_copy" },
-              { label: "Crea Script Video Ads", value: "create_video_ads", params: merged },
               { label: "Strategia Lancio FB", value: "prompt_launch_strategy" },
-              { label: "Traduci Landing", value: "prompt_translate_landing" },
             ],
           }
         }
@@ -444,6 +455,39 @@ export default function AgentPage() {
           }
         }
         return result.error || "Errore nella generazione immagini"
+      }
+
+      if (actionName === "create_thank_page") {
+        addMessage({ role: "system", content: "Generazione thank you page...", time: formatTime() })
+        const lingua = merged.lingua || merged.paese || "Italiano"
+        const result = await callEdgeFunction("create", {
+          nome: merged.nome || "Prodotto",
+          descrizione: `Thank you page / pagina di ringraziamento per ${merged.nome || "il prodotto"}. Messaggio di conferma ordine, riepilogo, tempi di spedizione.`,
+          prezzoP: merged.prezzoP || "",
+          prezzoS: merged.prezzoS || "",
+          target: merged.target || "",
+          categoria: merged.categoria || "GADGET",
+          pageType: "THANK_PAGE",
+          copywritingFramework: "AIDA",
+          lingua,
+          customPrompt: "Crea una THANK YOU PAGE con: messaggio di conferma ordine entusiasta, riepilogo prodotto, tempi di consegna stimati (3-5 giorni lavorativi), contatti assistenza, e un messaggio rassicurante sulla garanzia. Stile professionale e rassicurante.",
+        })
+        if (result.json) {
+          setGeneratedContent((prev: any) => ({ ...prev, thank_page: result.json }))
+          const html = elementorToHtml(result.json)
+          setPreviewHtml(html)
+          setShowPreview(true)
+          return {
+            message: `Thank Page generata in ${lingua}!\n\n**Cosa vuoi fare?**`,
+            actions: [
+              { label: "Vedi Anteprima", value: "preview_landing" },
+              { label: "Pubblica su WordPress", value: "publish_wordpress", params: { ...merged, pageType: "thank_page", pageTitle: `Thank You - ${merged.nome || "Ordine"}` } },
+              { label: "Crea Copy Ads Facebook", value: "prompt_ad_copy" },
+              { label: "Strategia Lancio FB", value: "prompt_launch_strategy" },
+            ],
+          }
+        }
+        return result.error || "Errore nella generazione della thank page"
       }
 
       if (actionName === "create_video_ads") {
@@ -604,10 +648,12 @@ export default function AgentPage() {
       "pause_campaign", "activate_campaign", "pause_multiple", "activate_multiple",
       "update_budget", "sync_campaigns", "get_campaign_details",
       "sync_traffic_manager", "search_offers", "fetch_offers",
+      "publish_wordpress", "change_lp_offer", "insert_form",
     ]
     const funnelActions = [
       "create_landing", "create_video_ads", "create_retargeting",
       "create_funnel", "translate_landing", "generate_images",
+      "create_thank_page",
     ]
     const actionLabels: Record<string, (d: any) => string> = {
       pause_campaign: d => `Pausa "${d.campaignName || ""}"`,
@@ -626,6 +672,10 @@ export default function AgentPage() {
       create_funnel: d => `Funnel Completo "${d.nome || ""}"`,
       translate_landing: d => `Traduci in ${d.lingua || "..."}`,
       generate_images: () => "Genera Immagini AI",
+      create_thank_page: d => `Thank Page "${d.nome || ""}"`,
+      publish_wordpress: d => `Pubblica su WP "${d.pageTitle || ""}"`,
+      change_lp_offer: () => "Cambia LP/Offerta",
+      insert_form: d => `Inserisci Modulo ${d.formType || "lead"}`,
     }
 
     let runningHistory = [...chatHistory, { role: "user", content: text }]
@@ -680,7 +730,20 @@ export default function AgentPage() {
         let actionResultText = ""
         let actionResultOffers: any[] | undefined
 
-        if (adsActions.includes(actionName)) {
+        if (actionName === "publish_wordpress") {
+          const contentKey = extractedData.pageType === "thank_page" ? "thank_page" : "landing"
+          const content = generatedContent[contentKey]
+          if (!content) {
+            actionResultText = `Nessuna ${contentKey} da pubblicare. Crea prima il contenuto.`
+            addMessage({ role: "agent", content: actionResultText, time: formatTime() })
+          } else {
+            const html = elementorToHtml(content)
+            addMessage({ role: "system", content: `Pubblicazione su WordPress...`, time: formatTime() })
+            const actionResult = await executeAction("publish_wordpress", { ...extractedData, htmlContent: html })
+            actionResultText = actionResult.message
+            addMessage({ role: "agent", content: actionResult.message, time: formatTime() })
+          }
+        } else if (adsActions.includes(actionName)) {
           addMessage({ role: "system", content: `Esecuzione: ${actionName}...`, time: formatTime() })
           const actionResult = await executeAction(actionName, extractedData)
           actionResultText = actionResult.message
@@ -738,6 +801,23 @@ export default function AgentPage() {
 
     const adsActions = ["pause_campaign", "activate_campaign", "pause_multiple", "activate_multiple", "update_budget", "sync_campaigns", "get_campaign_details", "sync_traffic_manager", "search_offers", "fetch_offers"]
     const funnelActions = ["create_landing", "create_video_ads", "create_retargeting", "create_funnel", "translate_landing", "generate_images"]
+
+    if (value === "publish_wordpress" && params) {
+      setIsProcessing(true)
+      const contentKey = params.pageType === "thank_page" ? "thank_page" : "landing"
+      const content = generatedContent[contentKey]
+      if (!content) {
+        addMessage({ role: "agent", content: `Nessuna ${contentKey === "thank_page" ? "thank page" : "landing page"} da pubblicare. Creane una prima.`, time: formatTime() })
+        setIsProcessing(false)
+        return
+      }
+      const html = elementorToHtml(content)
+      addMessage({ role: "system", content: `Pubblicazione ${params.pageType || "landing"} su WordPress...`, time: formatTime() })
+      const result = await executeAction("publish_wordpress", { ...params, htmlContent: html })
+      addMessage({ role: "agent", content: result.message, time: formatTime() })
+      setIsProcessing(false)
+      return
+    }
 
     if (adsActions.includes(value) && params) {
       setIsProcessing(true)
@@ -1043,6 +1123,14 @@ export default function AgentPage() {
               <button onClick={() => { setShowPreview(false); handleQuickAction("prompt_translate_landing") }}
                 className="w-full px-3 py-2.5 rounded-lg text-xs font-medium text-left bg-yellow-500/15 border border-yellow-500/30 text-yellow-300 hover:bg-yellow-500/30 transition-colors">
                 🌍 Traduci Landing
+              </button>
+              <button onClick={() => { handleQuickAction("create_thank_page", productData) }}
+                className="w-full px-3 py-2.5 rounded-lg text-xs font-medium text-left bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/30 transition-colors">
+                ✅ Crea Thank Page
+              </button>
+              <button onClick={() => { handleQuickAction("publish_wordpress", { ...productData, pageType: "landing", pageTitle: productData.nome || "Landing Page" }) }}
+                className="w-full px-3 py-2.5 rounded-lg text-xs font-medium text-left bg-orange-500/15 border border-orange-500/30 text-orange-300 hover:bg-orange-500/30 transition-colors">
+                🌐 Pubblica su WordPress
               </button>
               <button onClick={() => { setShowPreview(false); if (generatedContent.landing) { handleQuickAction("create_retargeting", productData) } }}
                 className="w-full px-3 py-2.5 rounded-lg text-xs font-medium text-left bg-pink-500/15 border border-pink-500/30 text-pink-300 hover:bg-pink-500/30 transition-colors">

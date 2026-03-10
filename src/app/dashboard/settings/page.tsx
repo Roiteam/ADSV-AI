@@ -5,7 +5,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Save, Key, Eye, EyeOff, CheckCircle2, Bot } from "lucide-react"
+import { Save, Key, Eye, EyeOff, CheckCircle2, Bot, Globe, Plus, Trash2 } from "lucide-react"
+
+interface WPSite {
+  name: string
+  domain: string
+  username: string
+  app_password: string
+}
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState({
@@ -13,6 +20,7 @@ export default function SettingsPage() {
     openai_api_key: "",
     preferred_model: "claude",
   })
+  const [wpSites, setWpSites] = useState<WPSite[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -23,11 +31,14 @@ export default function SettingsPage() {
     fetch("/api/user/settings")
       .then(r => r.json())
       .then(d => {
-        if (d.settings) setSettings({
-          anthropic_api_key: d.settings.anthropic_api_key || "",
-          openai_api_key: d.settings.openai_api_key || "",
-          preferred_model: d.settings.preferred_model || "claude",
-        })
+        if (d.settings) {
+          setSettings({
+            anthropic_api_key: d.settings.anthropic_api_key || "",
+            openai_api_key: d.settings.openai_api_key || "",
+            preferred_model: d.settings.preferred_model || "claude",
+          })
+          if (d.settings.wordpress_sites) setWpSites(d.settings.wordpress_sites)
+        }
       })
       .catch(() => {})
       .finally(() => setLoading(false))
@@ -40,7 +51,7 @@ export default function SettingsPage() {
       const res = await fetch("/api/user/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(settings),
+        body: JSON.stringify({ ...settings, wordpress_sites: wpSites }),
       })
       const json = await res.json()
       if (json.success) setSaved(true)
@@ -163,6 +174,91 @@ export default function SettingsPage() {
             <Button onClick={handleSave} disabled={saving}>
               <Save size={16} />
               {saving ? "Salvataggio..." : "Salva Impostazioni"}
+            </Button>
+            {saved && (
+              <span className="text-sm text-green-600 flex items-center gap-1">
+                <CheckCircle2 size={16} /> Salvato!
+              </span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Globe size={20} />
+            WordPress — Siti collegati
+          </CardTitle>
+          <p className="text-sm text-gray-500">
+            Collega i tuoi siti WordPress per pubblicare landing page e thank page direttamente dal tool.
+            Serve un <strong>Application Password</strong> di WordPress (Utenti → Profilo → Password per le applicazioni).
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {wpSites.map((site, i) => (
+            <div key={i} className="p-4 border rounded-lg space-y-3 relative">
+              <button
+                onClick={() => setWpSites(wpSites.filter((_, j) => j !== i))}
+                className="absolute top-3 right-3 text-red-400 hover:text-red-600"
+                title="Rimuovi sito"
+              >
+                <Trash2 size={16} />
+              </button>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-gray-600 mb-1 block">Nome sito</label>
+                  <Input
+                    value={site.name}
+                    onChange={e => { const s = [...wpSites]; s[i] = { ...s[i], name: e.target.value }; setWpSites(s) }}
+                    placeholder="Il mio sito"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600 mb-1 block">Dominio (con https://)</label>
+                  <Input
+                    value={site.domain}
+                    onChange={e => { const s = [...wpSites]; s[i] = { ...s[i], domain: e.target.value }; setWpSites(s) }}
+                    placeholder="https://miosito.com"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600 mb-1 block">Username WordPress</label>
+                  <Input
+                    value={site.username}
+                    onChange={e => { const s = [...wpSites]; s[i] = { ...s[i], username: e.target.value }; setWpSites(s) }}
+                    placeholder="admin"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600 mb-1 block">Application Password</label>
+                  <Input
+                    type="password"
+                    value={site.app_password}
+                    onChange={e => { const s = [...wpSites]; s[i] = { ...s[i], app_password: e.target.value }; setWpSites(s) }}
+                    placeholder="xxxx xxxx xxxx xxxx"
+                  />
+                </div>
+              </div>
+              {site.domain && site.username && site.app_password && (
+                <p className="text-xs text-green-600 flex items-center gap-1">
+                  <CheckCircle2 size={12} /> Configurato: {site.domain}
+                </p>
+              )}
+            </div>
+          ))}
+          <Button
+            variant="outline"
+            onClick={() => setWpSites([...wpSites, { name: "", domain: "", username: "", app_password: "" }])}
+            className="w-full"
+          >
+            <Plus size={16} />
+            Aggiungi sito WordPress
+          </Button>
+
+          <div className="flex items-center gap-3 pt-2 border-t">
+            <Button onClick={handleSave} disabled={saving}>
+              <Save size={16} />
+              {saving ? "Salvataggio..." : "Salva Tutto"}
             </Button>
             {saved && (
               <span className="text-sm text-green-600 flex items-center gap-1">

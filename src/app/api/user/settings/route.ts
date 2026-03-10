@@ -41,11 +41,14 @@ export async function POST(request: NextRequest) {
       .eq("user_id", user.id)
       .single()
 
-    const settingsData = {
+    const settingsData: any = {
       user_id: user.id,
       anthropic_api_key: body.anthropic_api_key || null,
       openai_api_key: body.openai_api_key || null,
       preferred_model: body.preferred_model || "claude",
+    }
+    if (body.wordpress_sites !== undefined) {
+      settingsData.wordpress_sites = body.wordpress_sites
     }
 
     if (existing) {

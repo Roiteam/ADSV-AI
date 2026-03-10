@@ -329,6 +329,159 @@ export async function POST(request: NextRequest) {
       })
     }
 
+    if (action === "publish_wordpress") {
+      const wpSiteId = params?.wpSiteId ?? 0
+      const pageTitle = params?.pageTitle || "Landing Page"
+      const pageType = params?.pageType || "landing"
+
+      const { data: userSettings } = await serviceClient
+        .from("user_settings")
+        .select("wordpress_sites")
+        .eq("user_id", user.id)
+        .single()
+
+      const sites = userSettings?.wordpress_sites
+      if (!sites || !Array.isArray(sites) || sites.length === 0) {
+        return NextResponse.json({ success: false, message: "Nessun sito WordPress configurato. Vai in Impostazioni per aggiungerne uno." })
+      }
+
+      const site = sites[Number(wpSiteId)] || sites[0]
+      if (!site?.domain || !site?.username || !site?.app_password) {
+        return NextResponse.json({ success: false, message: `Sito WordPress "${site?.name || wpSiteId}" non configurato completamente (manca dominio, username o app password)` })
+      }
+
+      const htmlContent = params?.htmlContent
+      if (!htmlContent) return NextResponse.json({ success: false, message: "Nessun contenuto HTML da pubblicare" })
+
+      const domain = site.domain.replace(/\/$/, "")
+      const auth = Buffer.from(`${site.username}:${site.app_password}`).toString("base64")
+
+      try {
+        const wpRes = await fetch(`${domain}/wp-json/wp/v2/pages`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Basic ${auth}`,
+          },
+          body: JSON.stringify({
+            title: pageTitle,
+            content: htmlContent,
+            status: "publish",
+            template: "elementor_canvas",
+          }),
+        })
+
+        const wpData = await wpRes.json()
+
+        if (!wpRes.ok) {
+          return NextResponse.json({
+            success: false,
+            message: `Errore WordPress: ${wpData?.message || wpRes.status}. Verifica username e Application Password nelle Impostazioni.`,
+          })
+        }
+
+        return NextResponse.json({
+          success: true,
+          message: `${pageType === "thank_page" ? "Thank Page" : "Landing Page"} "${pageTitle}" pubblicata su ${site.name}!\nURL: ${wpData.link || `${domain}/?p=${wpData.id}`}\nID Pagina: ${wpData.id}`,
+          pageId: wpData.id,
+          pageUrl: wpData.link,
+        })
+      } catch (err: any) {
+        return NextResponse.json({ success: false, message: `Errore connessione WordPress: ${err.message}` })
+      }
+    }
+
+    if (action === "change_lp_offer") {
+      const wpSiteId = params?.wpSiteId ?? 0
+      const pageId = params?.pageId
+      const newContent = params?.htmlContent
+      const newOfferUrl = params?.newOfferUrl
+
+      if (!pageId) return NextResponse.json({ success: false, message: "ID pagina WordPress richiesto" })
+
+      const { data: userSettings } = await serviceClient
+        .from("user_settings")
+        .select("wordpress_sites")
+        .eq("user_id", user.id)
+        .single()
+
+      const sites = userSettings?.wordpress_sites
+      if (!sites || !Array.isArray(sites) || sites.length === 0) {
+        return NextResponse.json({ success: false, message: "Nessun sito WordPress configurato" })
+      }
+
+      const site = sites[Number(wpSiteId)] || sites[0]
+      const domain = site.domain.replace(/\/$/, "")
+      const auth = Buffer.from(`${site.username}:${site.app_password}`).toString("base64")
+
+      const updateData: any = {}
+      if (newContent) updateData.content = newContent
+      if (newOfferUrl) {
+        updateData.meta = { offer_url: newOfferUrl }
+      }
+
+      try {
+        const wpRes = await fetch(`${domain}/wp-json/wp/v2/pages/${pageId}`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Basic ${auth}`,
+          },
+          body: JSON.stringify(updateData),
+        })
+
+        const wpData = await wpRes.json()
+        if (!wpRes.ok) {
+          return NextResponse.json({ success: false, message: `Errore WordPress: ${wpData?.message || wpRes.status}` })
+        }
+
+        return NextResponse.json({
+          success: true,
+          message: `Pagina ${pageId} aggiornata su ${site.name}. ${newOfferUrl ? `Nuova offerta: ${newOfferUrl}` : "Contenuto aggiornato."}`,
+        })
+      } catch (err: any) {
+        return NextResponse.json({ success: false, message: `Errore: ${err.message}` })
+      }
+    }
+
+    if (action === "insert_form") {
+      const formType = params?.formType || "lead"
+      const formFields = params?.formFields || ["nome", "email", "telefono"]
+      const lingua = params?.lingua || "it"
+
+      const labels: Record<string, Record<string, string>> = {
+        nome: { it: "Nome", es: "Nombre", bg: "Име", pl: "Imię", pt: "Nome", fr: "Nom", de: "Name", ro: "Nume", en: "Name" },
+        email: { it: "Email", es: "Correo", bg: "Имейл", pl: "E-mail", pt: "E-mail", fr: "E-mail", de: "E-Mail", ro: "E-mail", en: "Email" },
+        telefono: { it: "Telefono", es: "Teléfono", bg: "Телефон", pl: "Telefon", pt: "Telefone", fr: "Téléphone", de: "Telefon", ro: "Telefon", en: "Phone" },
+        indirizzo: { it: "Indirizzo", es: "Dirección", bg: "Адрес", pl: "Adres", pt: "Endereço", fr: "Adresse", de: "Adresse", ro: "Adresă", en: "Address" },
+        citta: { it: "Città", es: "Ciudad", bg: "Град", pl: "Miasto", pt: "Cidade", fr: "Ville", de: "Stadt", ro: "Oraș", en: "City" },
+      }
+
+      const lang = lingua.toLowerCase().substring(0, 2)
+      const submitLabel: Record<string, string> = {
+        it: "ORDINA ORA", es: "¡PIDE AHORA!", bg: "ПОРЪЧАЙ СЕГА!", pl: "ZAMÓW TERAZ!", pt: "PEÇA AGORA!", fr: "COMMANDEZ!", de: "JETZT BESTELLEN!", ro: "COMANDĂ ACUM!", en: "ORDER NOW!",
+      }
+
+      const fieldsHtml = formFields.map((f: string) => {
+        const label = labels[f]?.[lang] || labels[f]?.["en"] || f
+        return `<input type="${f === "email" ? "email" : "text"}" name="${f}" placeholder="${label}" required style="width:100%;padding:14px;margin:6px 0;border:1px solid #ddd;border-radius:8px;font-size:15px" />`
+      }).join("\n")
+
+      const formHtml = `<div style="background:#f8f9fa;padding:32px;border-radius:12px;margin:20px auto;max-width:500px;text-align:center">
+<form method="post" action="">
+${fieldsHtml}
+<button type="submit" style="width:100%;padding:16px;margin-top:12px;background:#e74c3c;color:#fff;border:none;border-radius:8px;font-size:18px;font-weight:bold;cursor:pointer">${submitLabel[lang] || submitLabel["en"]}</button>
+</form>
+</div>`
+
+      return NextResponse.json({
+        success: true,
+        message: `Modulo ${formType} generato con ${formFields.length} campi in ${lingua}. Usa questo HTML nella tua landing page.`,
+        formHtml,
+        type: "form",
+      })
+    }
+
     return NextResponse.json({ success: false, message: `Azione "${action}" non supportata` })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Error" }, { status: 500 })

@@ -23,8 +23,12 @@ export async function POST(request: NextRequest) {
         const { data } = await serviceClient.from("campaigns").select("*, fb_ad_account:fb_ad_accounts(access_token)").eq("id", campaignId).single()
         campaign = data
       } else if (campaignName) {
-        const { data } = await serviceClient.from("campaigns").select("*, fb_ad_account:fb_ad_accounts(access_token)").ilike("name", `%${campaignName}%`).limit(1).single()
+        const { data } = await serviceClient.from("campaigns").select("*, fb_ad_account:fb_ad_accounts(access_token)").ilike("name", `%${campaignName}%`).eq("status", "ACTIVE").limit(1).single()
         campaign = data
+        if (!campaign) {
+          const fb = await serviceClient.from("campaigns").select("*, fb_ad_account:fb_ad_accounts(access_token)").ilike("name", `%${campaignName}%`).limit(1).single()
+          campaign = fb.data
+        }
       }
 
       if (!campaign) return NextResponse.json({ success: false, message: `Campagna "${campaignName || campaignId}" non trovata` })
@@ -86,7 +90,24 @@ export async function POST(request: NextRequest) {
 
       if (!campaignName || !newBudget) return NextResponse.json({ success: false, message: "Nome campagna e budget richiesti" })
 
-      const { data: campaign } = await serviceClient.from("campaigns").select("*, fb_ad_account:fb_ad_accounts(access_token)").ilike("name", `%${campaignName}%`).limit(1).single()
+      let { data: campaign } = await serviceClient
+        .from("campaigns")
+        .select("*, fb_ad_account:fb_ad_accounts(access_token)")
+        .ilike("name", `%${campaignName}%`)
+        .eq("status", "ACTIVE")
+        .limit(1)
+        .single()
+
+      if (!campaign) {
+        const fallback = await serviceClient
+          .from("campaigns")
+          .select("*, fb_ad_account:fb_ad_accounts(access_token)")
+          .ilike("name", `%${campaignName}%`)
+          .limit(1)
+          .single()
+        campaign = fallback.data
+      }
+
       if (!campaign) return NextResponse.json({ success: false, message: `Campagna "${campaignName}" non trovata` })
 
       const token = (campaign.fb_ad_account as any)?.access_token
@@ -161,7 +182,11 @@ export async function POST(request: NextRequest) {
       const campaignName = params?.campaignName
       if (!campaignName) return NextResponse.json({ success: false, message: "Nome campagna richiesto" })
 
-      const { data: campaign } = await serviceClient.from("campaigns").select("*").ilike("name", `%${campaignName}%`).limit(1).single()
+      let { data: campaign } = await serviceClient.from("campaigns").select("*").ilike("name", `%${campaignName}%`).eq("status", "ACTIVE").limit(1).single()
+      if (!campaign) {
+        const fb = await serviceClient.from("campaigns").select("*").ilike("name", `%${campaignName}%`).limit(1).single()
+        campaign = fb.data
+      }
       if (!campaign) return NextResponse.json({ success: false, message: `Campagna "${campaignName}" non trovata` })
 
       const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]

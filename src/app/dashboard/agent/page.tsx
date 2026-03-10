@@ -199,7 +199,8 @@ Ads Manager — Gestione:
 Ads Manager — Creazione:
 - "create_campaign" — extractedData: name, objective, dailyBudget/lifetimeBudget, bidStrategy (LOWEST_COST_WITHOUT_CAP/COST_CAP/LOWEST_COST_WITH_BID_CAP/LOWEST_COST_WITH_MIN_ROAS), bidAmount (€ cap), roasTarget, budgetRebalance, status, accountName
 - "create_adset" — extractedData: campaignName, name, dailyBudget/lifetimeBudget, optimizationGoal, targeting (JSON), pixelId, customEventType, bidAmount, bidStrategy, roasTarget, dynamicCreative, pacingType ("standard"/"no_pacing" per accelerata), schedule (dayparting), attributionSpec, status
-- "create_ad" — extractedData: adsetName, name, pageId, instagramActorId, link, displayLink, urlTags, primaryText (stringa o array), headline (stringa o array), description (stringa o array), imageUrl/imageUrls (array per carousel/DC), videoId, callToAction, dynamicCreative, status
+- "create_ad" — extractedData: adsetName, name, pageId, instagramActorId, link, displayLink, urlTags, primaryText (stringa o array), headline (stringa o array), description (stringa o array), imageUrl/imageUrls (array per carousel/DC), videoId, callToAction, dynamicCreative, postId (usa post esistente con social proof), creativeId (riusa creative), status
+- "get_post_ids" — Recupera post ID dalle ads (extractedData: campaignName/adsetName/adId). Per riutilizzare social proof
 
 Ads Manager — Duplicazione:
 - "duplicate_campaign" — extractedData: campaignName, newName, budget, status
@@ -736,7 +737,7 @@ export default function AgentPage() {
       "publish_wordpress", "change_lp_offer",
       "create_campaign", "create_adset", "create_ad",
       "duplicate_campaign", "update_adset", "update_ad",
-      "search_interests",
+      "search_interests", "get_post_ids", "get_ad_post_ids",
     ]
     const funnelActions = [
       "create_landing", "create_video_ads", "create_retargeting",
@@ -762,6 +763,8 @@ export default function AgentPage() {
       update_adset: d => `Modifica Adset`,
       update_ad: d => `Modifica Ad ${d.adId || ""}`,
       search_interests: d => `Cerca Interessi "${d.query || ""}"`,
+      get_post_ids: d => `Post ID "${d.campaignName || d.adsetName || ""}"`,
+      get_ad_post_ids: d => `Post ID "${d.campaignName || d.adsetName || ""}"`,
       create_landing: d => `Crea Landing "${d.nome || ""}"`,
       create_video_ads: d => `Crea Video Ads "${d.nome || ""}"`,
       create_retargeting: d => `Crea Retargeting "${d.nome || ""}"`,
@@ -894,7 +897,7 @@ export default function AgentPage() {
       return
     }
 
-    const adsActions = ["pause_campaign", "activate_campaign", "pause_multiple", "activate_multiple", "update_budget", "sync_campaigns", "get_campaign_details", "get_campaign_structure", "sync_traffic_manager", "search_offers", "fetch_offers", "create_campaign", "create_adset", "create_ad", "duplicate_campaign", "update_adset", "update_ad", "search_interests"]
+    const adsActions = ["pause_campaign", "activate_campaign", "pause_multiple", "activate_multiple", "update_budget", "sync_campaigns", "get_campaign_details", "get_campaign_structure", "sync_traffic_manager", "search_offers", "fetch_offers", "create_campaign", "create_adset", "create_ad", "duplicate_campaign", "update_adset", "update_ad", "search_interests", "get_post_ids", "get_ad_post_ids"]
     const funnelActions = ["create_landing", "create_video_ads", "create_retargeting", "create_funnel", "translate_landing", "generate_images"]
 
     if (value === "publish_wordpress" && params) {

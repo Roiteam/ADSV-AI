@@ -81,6 +81,11 @@ AZIONI ESEGUIBILI (campo "suggestedAction"):
   - videoId (per video ads)
   - callToAction: LEARN_MORE, SHOP_NOW, SIGN_UP, ORDER_NOW, BUY_NOW, GET_OFFER, BOOK_TRAVEL, CONTACT_US, DOWNLOAD, SUBSCRIBE, APPLY_NOW, GET_QUOTE, WATCH_MORE
   - dynamicCreative (true → il sistema crea un Dynamic Creative ad che testa tutte le combinazioni di immagini/testi/headline)
+  - postId (usa un post esistente come ad — mantiene social proof: like, commenti, condivisioni. NON serve pageId se usi postId)
+  - creativeId (riusa una creative esistente senza crearne una nuova)
+
+**ADS MANAGER — POST ID:**
+- "get_post_ids" — Recupera i Post ID delle ads in una campagna/adset. extractedData: campaignName e/o adsetName e/o adId. Utile per: riutilizzare post con social proof in altri adset/campagne, stacking social proof
 
 **ADS MANAGER — DUPLICAZIONE:**
 - "duplicate_campaign" — Duplica campagna completa (con adset e ads). extractedData: campaignName, newName (opzionale), budget (nuovo budget opzionale), status (default: PAUSED)

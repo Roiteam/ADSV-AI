@@ -827,7 +827,69 @@ export async function POST(request: NextRequest) {
       }
 
       if (!resolvedAdsetId || !token || !accountId) return NextResponse.json({ success: false, message: "Adset non trovato o token mancante" })
-      if (!pageId) return NextResponse.json({ success: false, message: "Page ID Facebook richiesto (la pagina da cui pubblicare l'ad)" })
+
+      const postId = params?.postId
+      const existingCreativeId = params?.creativeId
+
+      if (existingCreativeId) {
+        try {
+          const adRes = await fetch(`https://graph.facebook.com/v21.0/${accountId}/ads`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, adset_id: resolvedAdsetId, creative: { creative_id: existingCreativeId }, status, access_token: token }),
+          })
+          const adData = await adRes.json()
+          if (!adRes.ok || adData.error) {
+            return NextResponse.json({ success: false, message: `Errore: ${adData?.error?.message || adRes.status}` })
+          }
+          return NextResponse.json({
+            success: true,
+            message: `Ad "${name}" creato con creative esistente!\nAd ID: ${adData.id}\nCreative ID: ${existingCreativeId}\nStato: ${status}`,
+            adId: adData.id,
+          })
+        } catch (err: any) {
+          return NextResponse.json({ success: false, message: `Errore: ${err.message}` })
+        }
+      }
+
+      if (postId) {
+        try {
+          const creativeRes = await fetch(`https://graph.facebook.com/v21.0/${accountId}/adcreatives`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: `Post Creative - ${name}`,
+              object_story_id: postId,
+              access_token: token,
+            }),
+          })
+          const creativeData = await creativeRes.json()
+          if (!creativeRes.ok || creativeData.error) {
+            return NextResponse.json({ success: false, message: `Errore creative da post: ${creativeData?.error?.message || creativeRes.status}` })
+          }
+
+          const adRes = await fetch(`https://graph.facebook.com/v21.0/${accountId}/ads`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, adset_id: resolvedAdsetId, creative: { creative_id: creativeData.id }, status, access_token: token }),
+          })
+          const adData = await adRes.json()
+          if (!adRes.ok || adData.error) {
+            return NextResponse.json({ success: false, message: `Errore creazione ad: ${adData?.error?.message || adRes.status}` })
+          }
+
+          return NextResponse.json({
+            success: true,
+            message: `Ad "${name}" creato da post ID esistente!\nAd ID: ${adData.id}\nPost ID: ${postId}\nSocial proof (like, commenti, condivisioni) mantenuta!\nStato: ${status}`,
+            adId: adData.id,
+            creativeId: creativeData.id,
+          })
+        } catch (err: any) {
+          return NextResponse.json({ success: false, message: `Errore: ${err.message}` })
+        }
+      }
+
+      if (!pageId) return NextResponse.json({ success: false, message: "Page ID Facebook richiesto (la pagina da cui pubblicare l'ad). In alternativa usa postId per un post esistente." })
 
       try {
         const objectStorySpec: any = { page_id: pageId }
@@ -1126,6 +1188,80 @@ export async function POST(request: NextRequest) {
       } catch (err: any) {
         return NextResponse.json({ success: false, message: `Errore: ${err.message}` })
       }
+    }
+
+    // ===================================================================
+    // FACEBOOK ADS: GET POST IDs FROM ADS
+    // ===================================================================
+    if (action === "get_post_ids" || action === "get_ad_post_ids") {
+      const campaignName = params?.campaignName
+      const adsetName = params?.adsetName
+      const adId = params?.adId
+
+      if (!campaignName && !adsetName && !adId) {
+        return NextResponse.json({ success: false, message: "Specifica campaignName, adsetName o adId" })
+      }
+
+      const { data: campaigns } = await serviceClient.from("campaigns")
+        .select("fb_campaign_id, name, fb_ad_account:fb_ad_accounts(access_token)")
+        .ilike("name", `%${campaignName || ""}%`).limit(10)
+
+      const results: string[] = []
+      const postIds: any[] = []
+
+      for (const c of campaigns || []) {
+        const token = (c.fb_ad_account as any)?.access_token
+        if (!token) continue
+
+        try {
+          if (adId) {
+            const res = await fetch(`https://graph.facebook.com/v21.0/${adId}?fields=id,name,creative{id,effective_object_story_id,object_story_id,thumbnail_url}&access_token=${encodeURIComponent(token)}`)
+            const data = await res.json()
+            if (data && !data.error) {
+              const storyId = data.creative?.effective_object_story_id || data.creative?.object_story_id
+              results.push(`Ad "${data.name}": Post ID = ${storyId || "N/A"}`)
+              if (storyId) postIds.push({ adId: data.id, adName: data.name, postId: storyId, creativeId: data.creative?.id })
+            }
+            break
+          }
+
+          const adsetsRes = await fetch(`https://graph.facebook.com/v21.0/${c.fb_campaign_id}/adsets?fields=id,name&limit=50&access_token=${encodeURIComponent(token)}`)
+          const adsetsData = await adsetsRes.json()
+
+          for (const adset of adsetsData.data || []) {
+            if (adsetName && !adset.name.toLowerCase().includes(adsetName.toLowerCase())) continue
+
+            const adsRes = await fetch(`https://graph.facebook.com/v21.0/${adset.id}/ads?fields=id,name,creative{id,effective_object_story_id,object_story_id,thumbnail_url}&limit=50&access_token=${encodeURIComponent(token)}`)
+            const adsData = await adsRes.json()
+
+            for (const ad of adsData.data || []) {
+              const storyId = ad.creative?.effective_object_story_id || ad.creative?.object_story_id
+              if (storyId) {
+                results.push(`📄 "${ad.name}" → Post ID: **${storyId}**`)
+                postIds.push({
+                  adId: ad.id,
+                  adName: ad.name,
+                  adsetName: adset.name,
+                  postId: storyId,
+                  creativeId: ad.creative?.id,
+                })
+              } else {
+                results.push(`📄 "${ad.name}" → Post ID: non disponibile`)
+              }
+            }
+          }
+        } catch { /* skip */ }
+      }
+
+      if (postIds.length === 0) {
+        return NextResponse.json({ success: true, message: "Nessun post ID trovato per le ads specificate." })
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: `Post ID trovati:\n\n${results.join("\n")}\n\nPuoi usare questi Post ID per creare nuovi ad con la stessa social proof (like, commenti, condivisioni) usando create_ad con postId.`,
+        postIds,
+      })
     }
 
     return NextResponse.json({ success: false, message: `Azione "${action}" non supportata` })

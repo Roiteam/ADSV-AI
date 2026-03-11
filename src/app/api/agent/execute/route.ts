@@ -516,17 +516,35 @@ export async function POST(request: NextRequest) {
       if (!token) return NextResponse.json({ success: false, message: "Token mancante" })
 
       try {
-        const copyRes = await fetch(`https://graph.facebook.com/v21.0/${campaign.fb_campaign_id}/copies`, {
+        const copyParams: any = {
+          access_token: token,
+          deep_copy: true,
+          status_option: newStatus === "ACTIVE" ? "ACTIVE" : "PAUSED",
+          rename_strategy: "DEEP_RENAME",
+        }
+        if (newName) {
+          copyParams.rename_prefix = ""
+          copyParams.rename_suffix = ""
+        }
+
+        let copyRes = await fetch(`https://graph.facebook.com/v21.0/${campaign.fb_campaign_id}/copies`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            access_token: token,
-            deep_copy: true,
-            rename_options: newName ? { rename_suffix: "" } : undefined,
-            ...(newStatus === "PAUSED" ? { status_option: "PAUSED" } : {}),
-          }),
+          body: JSON.stringify(copyParams),
         })
-        const copyData = await copyRes.json()
+        let copyData = await copyRes.json()
+
+        if ((!copyRes.ok || copyData.error) && copyData?.error?.message?.includes("deep_copy")) {
+          delete copyParams.deep_copy
+          delete copyParams.rename_strategy
+          copyRes = await fetch(`https://graph.facebook.com/v21.0/${campaign.fb_campaign_id}/copies`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(copyParams),
+          })
+          copyData = await copyRes.json()
+        }
+
         if (!copyRes.ok || copyData.error) {
           return NextResponse.json({ success: false, message: `Errore duplicazione: ${copyData?.error?.message || copyRes.status}` })
         }
@@ -549,9 +567,39 @@ export async function POST(request: NextRequest) {
         const verifyRes = await fetch(`https://graph.facebook.com/v21.0/${newCampaignId}?fields=id,name,status,daily_budget&access_token=${encodeURIComponent(token)}`)
         const verifyData = await verifyRes.json()
 
-        const adsetsRes = await fetch(`https://graph.facebook.com/v21.0/${newCampaignId}/adsets?fields=id,name,status&limit=50&access_token=${encodeURIComponent(token)}`)
-        const adsetsData = await adsetsRes.json()
-        const adsetCount = adsetsData.data?.length || 0
+        let adsetsRes = await fetch(`https://graph.facebook.com/v21.0/${newCampaignId}/adsets?fields=id,name,status&limit=50&access_token=${encodeURIComponent(token)}`)
+        let adsetsData = await adsetsRes.json()
+        let adsetCount = adsetsData.data?.length || 0
+
+        if (adsetCount === 0) {
+          const origAdsetsRes = await fetch(`https://graph.facebook.com/v21.0/${campaign.fb_campaign_id}/adsets?fields=id,name&limit=50&access_token=${encodeURIComponent(token)}`)
+          const origAdsetsData = await origAdsetsRes.json()
+          for (const origAdset of origAdsetsData.data || []) {
+            try {
+              const adsetCopyRes = await fetch(`https://graph.facebook.com/v21.0/${origAdset.id}/copies`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  access_token: token,
+                  campaign_id: newCampaignId,
+                  deep_copy: true,
+                  status_option: "PAUSED",
+                }),
+              })
+              const adsetCopyData = await adsetCopyRes.json()
+              if (!adsetCopyRes.ok || adsetCopyData.error) {
+                await fetch(`https://graph.facebook.com/v21.0/${origAdset.id}/copies`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ access_token: token, campaign_id: newCampaignId, status_option: "PAUSED" }),
+                })
+              }
+            } catch { /* skip single adset */ }
+          }
+          adsetsRes = await fetch(`https://graph.facebook.com/v21.0/${newCampaignId}/adsets?fields=id,name,status&limit=50&access_token=${encodeURIComponent(token)}`)
+          adsetsData = await adsetsRes.json()
+          adsetCount = adsetsData.data?.length || 0
+        }
 
         let adCount = 0
         for (const adset of adsetsData.data || []) {

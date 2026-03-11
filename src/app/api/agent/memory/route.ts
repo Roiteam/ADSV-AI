@@ -168,25 +168,30 @@ async function handleLearn(
     }
   }
 
+  const protectedCategories = ["auto_skill", "error_fix", "correction"]
+
   const { count } = await serviceClient
     .from("agent_memory")
     .select("*", { count: "exact", head: true })
     .eq("user_id", userId)
 
-  if (count && count > 100) {
+  if (count && count > 150) {
     const { data: old } = await serviceClient
       .from("agent_memory")
-      .select("id")
+      .select("id, category")
       .eq("user_id", userId)
       .order("importance", { ascending: true })
       .order("updated_at", { ascending: true })
-      .limit(count - 80)
+      .limit(count - 100)
 
     if (old && old.length > 0) {
-      await serviceClient
-        .from("agent_memory")
-        .delete()
-        .in("id", old.map((m: any) => m.id))
+      const deletable = old.filter((m: any) => !protectedCategories.includes(m.category))
+      if (deletable.length > 0) {
+        await serviceClient
+          .from("agent_memory")
+          .delete()
+          .in("id", deletable.map((m: any) => m.id))
+      }
     }
   }
 

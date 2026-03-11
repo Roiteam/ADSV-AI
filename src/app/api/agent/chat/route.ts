@@ -256,6 +256,26 @@ REGOLE ASSOLUTE:
 13. OGNI risposta deve essere COMPLETA e AUTONOMA — MAI scrivere "vedi sopra", "risposta sopra", "come detto" o rimandare a messaggi precedenti
 14. Quando l'utente saluta o chiede "cosa posso fare", dai un BRIEFING PERSONALIZZATO: analizza i dati disponibili (campagne, spesa, ROAS, approval rate) e proponi 3-5 azioni concrete da fare oggi
 15. Il campo "reply" nel JSON deve SEMPRE contenere la risposta completa — MAI abbreviarla
+
+MINDSET AUTO-RESILIENTE — NON FALLIRE MAI:
+- Se un'azione fallisce con errore, ANALIZZA l'errore e RIPROVA con parametri corretti. NON mostrare l'errore grezzo all'utente.
+- Se ricevi un errore Facebook API, INTERPRETA il messaggio (es. "Invalid parameter", "pixel_id invalid") e CORREGGI automaticamente i parametri. Poi ripeti l'azione con autoExecute: true.
+- Se ti mancano informazioni (es. pageId, pixelId, targeting), CHIEDI all'utente in modo naturale: "Per creare la campagna mi serve la pagina Facebook da usare. Quale pagina vuoi usare?" — NON dire "errore: pageId mancante".
+- Se un'azione non esiste tra quelle disponibili, DECOMPONILA in azioni esistenti. Es. se l'utente chiede "scala la campagna" → duplicate_campaign + update_adset per modificare budget/targeting.
+- Se una creazione è incompleta (es. campagna senza ads), CONTINUA a creare gli step mancanti automaticamente. MAI lasciare contenitori vuoti.
+- Se non sai qualcosa di tecnico, CHIEDI all'utente: "Non ho questa informazione configurata. Puoi dirmi [X]?" — NON dire "non supportato".
+- PATTERN DI RETRY: errore → analizza → correggi parametri → riprova con autoExecute: true. Max 3 tentativi per azione.
+- PATTERN DI FALLBACK: se dopo 3 tentativi non riesci → spiega all'utente cosa serve e chiedi aiuto in modo collaborativo.
+- REGOLA D'ORO: l'utente non deve MAI vedere un errore tecnico grezzo. Traduci sempre in linguaggio umano e proponi la soluzione.
+
+GESTIONE ERRORI COMUNI:
+- "Invalid parameter promoted_object[pixel_id]" → Il pixel viene rilevato automaticamente, ignora il parametro e riprova senza specificarlo
+- "Invalid parameter targeting" → Semplifica il targeting (solo geo_locations + age) e riprova
+- "Adset non trovato" → Cerca la campagna con get_campaign_structure e usa l'ID corretto
+- "Token mancante" → Chiedi all'utente di verificare la connessione dell'account Facebook
+- "Creative error" → Se manca l'immagine, chiedi all'utente di fornirne una o usa l'immagine prodotto dall'offerta
+- Qualsiasi errore Facebook → Leggi il messaggio, capisci cosa manca, correggi, riprova
+
 16. ANALIZZA ogni interazione e impara. Nel campo "learnings" (array), estrai insight utili per il futuro. Categorie:
     - "user_preference": preferenze dell'utente (es. "preferisce CBO", "lavora con offerte lead gen ES/BG")
     - "campaign_insight": pattern sulle campagne (es. "ANTENNA ES ha CPA migliore di BG", "budget ottimale per lead gen è X")
@@ -263,8 +283,11 @@ REGOLE ASSOLUTE:
     - "offer_insight": insight sulle offerte (es. "offerta 2377 converte bene in ES con payout 14€")
     - "workflow_pattern": come l'utente preferisce lavorare (es. "vuole sempre prima la landing, poi copy, poi strategy")
     - "correction": quando l'utente ti corregge, memorizza l'errore per non ripeterlo
+    - "auto_skill": quando risolvi un errore o trovi un workaround, SALVALO come skill. Es: {"category":"auto_skill", "content":"Per creare campagna lead gen: serve pageId della pagina FB, pixel viene rilevato auto, targeting minimo geo+age", "importance": 9}
+    - "error_fix": quando un errore si ripete e lo risolvi, salva la soluzione. Es: {"category":"error_fix", "content":"Errore pixel_id invalid → non passare pixelId, il sistema lo rileva automaticamente dall'account", "importance": 10}
     Formato: {"category": "...", "content": "...", "importance": 1-10}
     Se non c'è nulla da imparare, ometti il campo.
+    IMPORTANTE: Ogni volta che risolvi un errore → SALVA SEMPRE un learning auto_skill o error_fix. Così la prossima volta non ripeterai lo stesso errore.
 
 MEMORIA PRECEDENTE (cose che hai imparato dalle interazioni passate):
 {MEMORY}`
@@ -508,10 +531,15 @@ export async function POST(request: NextRequest) {
       .eq("user_id", user.id)
       .order("importance", { ascending: false })
       .order("updated_at", { ascending: false })
-      .limit(25)
+      .limit(40)
 
-    const memoryText = memories && memories.length > 0
-      ? memories.map((m: any) => `[${m.category}|imp:${m.importance}] ${m.content}`).join("\n")
+    const skillMemories = (memories || []).filter((m: any) => ["auto_skill", "error_fix", "correction"].includes(m.category))
+    const otherMemories = (memories || []).filter((m: any) => !["auto_skill", "error_fix", "correction"].includes(m.category))
+    const sortedMemories = [...skillMemories, ...otherMemories].slice(0, 30)
+
+    const memoryText = sortedMemories.length > 0
+      ? (skillMemories.length > 0 ? "SKILL APPRESE (usa queste per evitare errori già risolti):\n" + skillMemories.map((m: any) => `⚡ [${m.category}] ${m.content}`).join("\n") + "\n\nALTRE MEMORIE:\n" : "") +
+        otherMemories.map((m: any) => `[${m.category}|imp:${m.importance}] ${m.content}`).join("\n")
       : "Nessuna memoria precedente — questa è la prima interazione. Impara il più possibile dall'utente."
 
     const { data: userSettingsForWP } = await serviceClient

@@ -783,7 +783,7 @@ export default function AgentPage() {
     setChatHistory(runningHistory)
 
     let loopCount = 0
-    const maxLoops = 5
+    const maxLoops = 12
 
     try {
       while (loopCount < maxLoops) {
@@ -805,6 +805,18 @@ export default function AgentPage() {
         runningHistory = [...runningHistory, { role: "assistant", content: reply }]
         setChatHistory([...runningHistory])
         addMessage({ role: "agent", content: reply, time: formatTime() })
+
+        if (result.learnings && Array.isArray(result.learnings)) {
+          for (const l of result.learnings) {
+            try {
+              await fetch("/api/agent/memory", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "save", category: l.category, content: l.content, importance: l.importance || 5 }),
+              })
+            } catch { /* silent */ }
+          }
+        }
 
         const shouldExecute = result.autoExecute === true || (result.confidence || 0) >= 0.95
         const actionName = result.suggestedAction
@@ -860,9 +872,11 @@ export default function AgentPage() {
             break
           }
         } else {
-          break
+          actionResultText = `[SISTEMA] Azione "${actionName}" non trovata tra le azioni disponibili. Analizza cosa vuole l'utente e usa una combinazione delle azioni esistenti per raggiungere l'obiettivo. Se proprio non riesci, chiedi all'utente chiarimenti in modo naturale.`
+          addMessage({ role: "system", content: `Azione "${actionName}" non disponibile, l'agente sta cercando un'alternativa...`, time: formatTime() })
         }
 
+        const isError = actionResultText?.includes("Errore") || actionResultText?.includes("errore") || actionResultText?.includes("non trovat") || actionResultText?.includes("mancante") || actionResultText?.includes("Invalid")
         const feedbackParts = [actionResultText]
         if (actionResultOffers && actionResultOffers.length > 0) {
           const offersSummary = actionResultOffers.slice(0, 15).map(o =>
@@ -870,14 +884,30 @@ export default function AgentPage() {
           ).join(",\n")
           feedbackParts.push(`\nDati offerte ricevuti:\n[${offersSummary}]`)
         }
+        if (isError) {
+          feedbackParts.push(`\n[SISTEMA — ISTRUZIONE AUTO-RECOVERY] L'azione "${actionName}" ha dato errore. DEVI fare una di queste cose:\n1. ANALIZZA l'errore e RIPROVA con parametri corretti (autoExecute: true)\n2. Se ti mancano dati, CHIEDI all'utente in modo naturale cosa serve\n3. Se l'errore è irrisolvibile, SPIEGA all'utente cosa non ha funzionato e PROPONI un'alternativa\nNON mostrare mai l'errore tecnico grezzo. Traduci in linguaggio umano.`)
+        }
 
         runningHistory = [...runningHistory, { role: "user", content: `[SISTEMA — Risultato azione "${actionName}"]:\n${feedbackParts.join("")}` }]
         setChatHistory([...runningHistory])
 
         loopCount++
       }
-    } catch (e) {
-      addMessage({ role: "agent", content: "Errore di connessione. Riprova.", time: formatTime() })
+    } catch (e: any) {
+      addMessage({ role: "agent", content: `Si è verificato un problema di connessione. Sto riprovando...`, time: formatTime() })
+      try {
+        const retryRes = await fetch("/api/agent/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: `[SISTEMA] L'ultima operazione è fallita per errore di rete: ${e?.message || "timeout"}. Riassumi cosa stavi facendo e proponi il prossimo passo.`, history: runningHistory.slice(-10) }),
+        })
+        if (retryRes.ok) {
+          const retryResult = await retryRes.json()
+          addMessage({ role: "agent", content: retryResult.reply || "Ci sono stati problemi di connessione. Dimmi cosa vuoi fare e riproviamo.", time: formatTime() })
+        }
+      } catch {
+        addMessage({ role: "agent", content: "Problemi di connessione. Controlla la rete e riprova.", time: formatTime() })
+      }
     }
     setIsProcessing(false)
     loadMemoryCount()

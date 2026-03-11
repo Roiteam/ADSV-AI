@@ -838,13 +838,21 @@ export async function POST(request: NextRequest) {
       // STEP 3: Create Adset
       let newAdsetId: string | null = null
       try {
+        let resolvedTargeting = targeting
+        if (typeof resolvedTargeting === "string") {
+          try { resolvedTargeting = JSON.parse(resolvedTargeting) } catch { resolvedTargeting = {} }
+        }
+        if (!resolvedTargeting || !resolvedTargeting.geo_locations) {
+          resolvedTargeting = { geo_locations: { countries: ["IT"] }, age_min: 18, age_max: 65 }
+        }
+
         const adsetParams: any = {
           name: adsetName,
           campaign_id: newCampaignId,
           optimization_goal: optimizationGoal,
           billing_event: "IMPRESSIONS",
           status,
-          targeting: typeof targeting === "string" ? targeting : JSON.stringify(targeting),
+          targeting: JSON.stringify(resolvedTargeting),
           access_token: token,
         }
         if (!lifetimeBudget && !dailyBudget) adsetParams.daily_budget = "2000"
@@ -858,13 +866,50 @@ export async function POST(request: NextRequest) {
           adsetParams.end_time = end.toISOString()
         }
 
-        const adsetRes = await fetch(`https://graph.facebook.com/v21.0/${accountId}/adsets`, {
+        let adsetRes = await fetch(`https://graph.facebook.com/v21.0/${accountId}/adsets`, {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify(adsetParams),
         })
-        const adsetData = await adsetRes.json()
+        let adsetData = await adsetRes.json()
+
         if (!adsetRes.ok || adsetData.error) {
-          errors.push(`Adset: ${adsetData?.error?.message || adsetRes.status}`)
+          const fbErr = adsetData?.error?.message || ""
+          const fbErrDetail = adsetData?.error?.error_user_msg || adsetData?.error?.error_user_title || ""
+
+          if (fbErr.includes("targeting") || fbErr.includes("geo_locations")) {
+            adsetParams.targeting = JSON.stringify({ geo_locations: { countries: ["IT"] }, age_min: 18, age_max: 65 })
+            adsetRes = await fetch(`https://graph.facebook.com/v21.0/${accountId}/adsets`, {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(adsetParams),
+            })
+            adsetData = await adsetRes.json()
+          }
+
+          if ((!adsetRes.ok || adsetData.error) && fbErr.includes("promoted_object")) {
+            delete adsetParams.promoted_object
+            adsetParams.optimization_goal = "LINK_CLICKS"
+            adsetRes = await fetch(`https://graph.facebook.com/v21.0/${accountId}/adsets`, {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(adsetParams),
+            })
+            adsetData = await adsetRes.json()
+          }
+
+          if ((!adsetRes.ok || adsetData.error) && adsetParams.daily_budget) {
+            delete adsetParams.daily_budget
+            adsetRes = await fetch(`https://graph.facebook.com/v21.0/${accountId}/adsets`, {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(adsetParams),
+            })
+            adsetData = await adsetRes.json()
+          }
+
+          if (!adsetRes.ok || adsetData.error) {
+            errors.push(`Adset: ${adsetData?.error?.message || adsetRes.status}${fbErrDetail ? ` — ${fbErrDetail}` : ""}`)
+          } else {
+            newAdsetId = adsetData.id
+            steps.push(`2. Adset "${adsetName}" creato (ID: ${newAdsetId}) [auto-fixed]`)
+          }
         } else {
           newAdsetId = adsetData.id
           steps.push(`2. Adset "${adsetName}" creato (ID: ${newAdsetId})${resolvedPixelId ? ` — Pixel: ${resolvedPixelId}` : ""}`)

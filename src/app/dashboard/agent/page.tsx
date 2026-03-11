@@ -796,7 +796,13 @@ export default function AgentPage() {
         })
 
         if (!res.ok) {
-          addMessage({ role: "agent", content: `Errore AI: ${res.status}. Controlla le API key nelle Impostazioni.`, time: formatTime() })
+          if ((res.status === 504 || res.status === 502 || res.status === 503) && loopCount === 0) {
+            addMessage({ role: "agent", content: "Timeout server, riprovo...", time: formatTime() })
+            loopCount++
+            await new Promise(r => setTimeout(r, 2000))
+            continue
+          }
+          addMessage({ role: "agent", content: res.status >= 500 ? `Errore server (${res.status}). Riprova tra qualche secondo.` : `Errore AI: ${res.status}. Controlla le API key nelle Impostazioni.`, time: formatTime() })
           break
         }
 

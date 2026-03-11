@@ -323,55 +323,58 @@ MEMORIA PRECEDENTE (cose che hai imparato dalle interazioni passate):
 
 async function getToolContext(serviceClient: any, userId: string, isAdmin: boolean) {
   const ctx: any = {}
-
-  const { data: accounts } = isAdmin
-    ? await serviceClient.from("fb_ad_accounts").select("id,name,account_id,status,currency,last_synced_at").order("name")
-    : await serviceClient.from("user_account_assignments").select("fb_ad_account_id").eq("user_id", userId)
-      .then(async (res: any) => {
-        const ids = (res.data || []).map((a: any) => a.fb_ad_account_id)
-        if (ids.length === 0) return { data: [] }
-        return serviceClient.from("fb_ad_accounts").select("id,name,account_id,status,currency,last_synced_at").in("id", ids)
-      })
-  ctx.accounts = (accounts || []).map((a: any) => ({ name: a.name, id: a.account_id, status: a.status, currency: a.currency }))
-
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
   const today = new Date().toISOString().split("T")[0]
-  const accountIds = (accounts || []).map((a: any) => a.id)
+  ctx.dataOggi = today
 
+  // Fetch accounts + traffic managers in parallel
+  const [accountsResult, tmResult] = await Promise.all([
+    isAdmin
+      ? serviceClient.from("fb_ad_accounts").select("id,name,account_id,status,currency").order("name")
+      : serviceClient.from("user_account_assignments").select("fb_ad_account_id").eq("user_id", userId)
+          .then(async (res: any) => {
+            const ids = (res.data || []).map((a: any) => a.fb_ad_account_id)
+            if (ids.length === 0) return { data: [] }
+            return serviceClient.from("fb_ad_accounts").select("id,name,account_id,status,currency").in("id", ids)
+          }),
+    Promise.all([
+      serviceClient.from("traffic_managers").select("id,name,api_base_url,last_synced_at"),
+      serviceClient.from("traffic_manager_data").select("total_conversions,approved_conversions,rejected_conversions,pending_conversions,revenue,raw_data").order("date", { ascending: false }).limit(30),
+    ]),
+  ])
+
+  const accounts = accountsResult.data || []
+  ctx.accounts = accounts.map((a: any) => ({ name: a.name, id: a.account_id, status: a.status, currency: a.currency }))
+  const accountIds = accounts.map((a: any) => a.id)
+
+  // Fetch campaigns + insights in parallel (only if we have accounts)
   if (accountIds.length > 0) {
-    const { data: campaigns } = await serviceClient.from("campaigns").select("id,name,status,objective,daily_budget,fb_ad_account_id").in("fb_ad_account_id", accountIds)
+    const [campaignsResult, insightsResult] = await Promise.all([
+      serviceClient.from("campaigns").select("id,name,status,objective,daily_budget,fb_ad_account_id").in("fb_ad_account_id", accountIds),
+      serviceClient.from("campaign_insights")
+        .select("campaign_id,spend,impressions,clicks,conversions,conversion_value")
+        .in("fb_ad_account_id", accountIds).gte("date", weekAgo).lte("date", today),
+    ])
+
+    const campaigns = campaignsResult.data || []
     ctx.campaigns = {
-      total: (campaigns || []).length,
-      active: (campaigns || []).filter((c: any) => c.status === "ACTIVE").length,
-      paused: (campaigns || []).filter((c: any) => c.status === "PAUSED").length,
-      list: (campaigns || []).map((c: any) => ({
-        name: c.name, status: c.status, objective: c.objective,
-        dailyBudget: c.daily_budget ? c.daily_budget / 100 : null,
-      })),
+      total: campaigns.length,
+      active: campaigns.filter((c: any) => c.status === "ACTIVE").length,
+      paused: campaigns.filter((c: any) => c.status === "PAUSED").length,
+      list: campaigns.map((c: any) => ({ name: c.name, status: c.status, objective: c.objective, dailyBudget: c.daily_budget ? c.daily_budget / 100 : null })),
     }
 
-    const { data: insights } = await serviceClient.from("campaign_insights")
-      .select("campaign_id,date,spend,impressions,clicks,ctr,cpc,cpm,conversions,conversion_value,roas,cost_per_conversion")
-      .in("fb_ad_account_id", accountIds).gte("date", weekAgo).lte("date", today)
-
-    if (insights && insights.length > 0) {
+    const insights = insightsResult.data || []
+    if (insights.length > 0) {
       const totals = insights.reduce((acc: any, i: any) => ({
-        spend: acc.spend + Number(i.spend),
-        impressions: acc.impressions + Number(i.impressions),
-        clicks: acc.clicks + Number(i.clicks),
-        conversions: acc.conversions + Number(i.conversions),
+        spend: acc.spend + Number(i.spend), impressions: acc.impressions + Number(i.impressions),
+        clicks: acc.clicks + Number(i.clicks), conversions: acc.conversions + Number(i.conversions),
         conversionValue: acc.conversionValue + Number(i.conversion_value),
       }), { spend: 0, impressions: 0, clicks: 0, conversions: 0, conversionValue: 0 })
 
       ctx.insights7d = {
-        periodo: `${weekAgo} → ${today}`,
-        spend: Math.round(totals.spend * 100) / 100,
-        impressions: totals.impressions,
-        clicks: totals.clicks,
-        ctr: totals.impressions > 0 ? Math.round((totals.clicks / totals.impressions) * 10000) / 100 : 0,
-        conversions: totals.conversions,
-        conversionValue: Math.round(totals.conversionValue * 100) / 100,
-        roas: totals.spend > 0 ? Math.round((totals.conversionValue / totals.spend) * 100) / 100 : 0,
+        periodo: `${weekAgo} → ${today}`, spend: Math.round(totals.spend * 100) / 100,
+        conversions: totals.conversions, roas: totals.spend > 0 ? Math.round((totals.conversionValue / totals.spend) * 100) / 100 : 0,
         cpa: totals.conversions > 0 ? Math.round((totals.spend / totals.conversions) * 100) / 100 : 0,
       }
 
@@ -381,94 +384,42 @@ async function getToolContext(serviceClient: any, userId: string, isAdmin: boole
         byCampaign[i.campaign_id].spend += Number(i.spend)
         byCampaign[i.campaign_id].conversions += Number(i.conversions)
         byCampaign[i.campaign_id].convValue += Number(i.conversion_value)
-        byCampaign[i.campaign_id].clicks += Number(i.clicks)
-        byCampaign[i.campaign_id].impressions += Number(i.impressions)
       }
 
       const campaignPerf = Object.entries(byCampaign).map(([cid, data]) => {
-        const camp = (campaigns || []).find((c: any) => c.id === cid)
+        const camp = campaigns.find((c: any) => c.id === cid)
         return {
-          name: camp?.name || cid,
-          status: camp?.status,
-          objective: camp?.objective,
-          spend: Math.round(data.spend * 100) / 100,
-          conversions: data.conversions,
-          roas: data.spend > 0 ? Math.round((data.convValue / data.spend) * 100) / 100 : 0,
+          name: camp?.name || cid, status: camp?.status, spend: Math.round(data.spend * 100) / 100,
+          conversions: data.conversions, roas: data.spend > 0 ? Math.round((data.convValue / data.spend) * 100) / 100 : 0,
           cpa: data.conversions > 0 ? Math.round((data.spend / data.conversions) * 100) / 100 : 0,
-          ctr: data.impressions > 0 ? Math.round((data.clicks / data.impressions) * 10000) / 100 : 0,
-          cpm: data.impressions > 0 ? Math.round((data.spend / data.impressions) * 100000) / 100 : 0,
         }
       }).filter(c => c.spend > 0).sort((a, b) => b.spend - a.spend)
 
-      ctx.campagnePerPerformance = campaignPerf.slice(0, 20)
-      ctx.campagneInPerdita = campaignPerf.filter(c => c.roas < 1 && c.spend > 5).sort((a, b) => a.roas - b.roas)
+      ctx.campagnePerPerformance = campaignPerf.slice(0, 15)
       ctx.campagneProfittevoli = campaignPerf.filter(c => c.roas >= 1).sort((a, b) => b.roas - a.roas).slice(0, 10)
     }
   }
 
-  const { data: tmManagers } = await serviceClient.from("traffic_managers").select("*")
-  const { data: tmData } = await serviceClient.from("traffic_manager_data").select("*").order("date", { ascending: false }).limit(50)
+  // Traffic manager data (already fetched in parallel)
+  const [tmManagersResult, tmDataResult] = tmResult
+  const tmManagers = tmManagersResult.data || []
+  const tmData = tmDataResult.data || []
 
-  if (tmManagers && tmManagers.length > 0) {
-    ctx.trafficManager = {
-      managers: tmManagers.map((m: any) => ({
-        id: m.id,
-        name: m.name,
-        url: m.api_base_url,
-        lastSync: m.last_synced_at,
-      })),
-    }
-
-    if (tmData && tmData.length > 0) {
+  if (tmManagers.length > 0) {
+    ctx.trafficManager = { managers: tmManagers.map((m: any) => ({ name: m.name, url: m.api_base_url })) }
+    if (tmData.length > 0) {
       const tmTotals = tmData.reduce((acc: any, d: any) => ({
-        total: acc.total + d.total_conversions,
-        approved: acc.approved + d.approved_conversions,
-        rejected: acc.rejected + d.rejected_conversions,
-        pending: acc.pending + d.pending_conversions,
+        total: acc.total + d.total_conversions, approved: acc.approved + d.approved_conversions,
+        rejected: acc.rejected + d.rejected_conversions, pending: acc.pending + d.pending_conversions,
         revenue: acc.revenue + Number(d.revenue),
       }), { total: 0, approved: 0, rejected: 0, pending: 0, revenue: 0 })
-
       ctx.trafficManager.approvalRate = {
-        lead: tmTotals.total,
-        approvate: tmTotals.approved,
-        rifiutate: tmTotals.rejected,
-        inAttesa: tmTotals.pending,
+        lead: tmTotals.total, approvate: tmTotals.approved, rifiutate: tmTotals.rejected,
         percentuale: tmTotals.total > 0 ? Math.round((tmTotals.approved / tmTotals.total) * 10000) / 100 : 0,
         revenue: Math.round(tmTotals.revenue * 100) / 100,
       }
-
-      const allOffers: any[] = []
-      for (const d of tmData) {
-        if (d.raw_data) {
-          const raw = d.raw_data as any
-          const offers = Array.isArray(raw) ? raw : raw?.data || []
-          for (const o of offers) {
-            const l = o.leads || {}
-            const c = o.conversions || {}
-            allOffers.push({
-              id: o.offer_id,
-              nome: o.offer_name || o.name,
-              confermate: l.confirmed?.total ?? 0,
-              cancellate: l.canceled?.total ?? 0,
-              inAttesa: c.pending?.total ?? l.to_call_back?.total ?? 0,
-              approvate: c.approved?.total ?? 0,
-              doppie: l.double ?? 0,
-              cestino: l.trash ?? 0,
-              payoutConfirmate: l.confirmed?.payout ?? 0,
-              payoutApprovate: c.approved?.payout ?? 0,
-              approvalRate: l.confirmed?.percent ?? c.approved?.percent ?? null,
-            })
-          }
-        }
-      }
-      if (allOffers.length > 0) {
-        ctx.trafficManager.offerteNetwork = allOffers
-      }
     }
-
   }
-
-  ctx.dataOggi = today
 
   return ctx
 }
